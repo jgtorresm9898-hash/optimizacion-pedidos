@@ -176,11 +176,6 @@ def min_cost_assignment_bounded(total_pallets, vehicles):
     max_cap = sum(v['capacidad'] for v in vehicles)
     dp_cost = [INF] * (max_cap + 1)
     dp_cost[0] = 0
-    # Snapshot dp_cost BEFORE each vehicle is processed — used for traceback
-    # so we can tell exactly which vehicle improved each dp_cost[j].
-    # (Parent-pointer traceback is broken: processing vehicle v at j=60 sets
-    # parent[60]=(42,v), then at j=42 updates parent[42]=(24,v), creating a
-    # chain 60→42→24 that selects v twice.)
     snapshots = [dp_cost[:]]
     for v in vehicles:
         cap  = v['capacidad']
@@ -205,7 +200,6 @@ def min_cost_assignment_bounded(total_pallets, vehicles):
             best_j = j
     if best_j == -1:
         return INF, []
-    # Snapshot-based traceback: iterate vehicles in reverse order
     selected = []
     j = best_j
     for i in range(len(vehicles) - 1, -1, -1):
@@ -214,8 +208,6 @@ def min_cost_assignment_bounded(total_pallets, vehicles):
         cost = v['costo']
         if j >= cap:
             prev_j = j - cap
-            # Vehicle i was used at position j if it is what brought dp_cost
-            # from snapshots[i][prev_j] to snapshots[i+1][j]
             if (snapshots[i][prev_j] != INF and
                     snapshots[i][prev_j] + cost == snapshots[i + 1][j]):
                 selected.append(v)
@@ -295,8 +287,8 @@ def optimize_day(day_orders, unavailable_vehicle_ids=None):
         vehicles = [v for v in VEHICLES_BY_ROUTE.get((zone, port), []) if avail(v)]
         if not vehicles:
             continue
-        farm_pallets      = {f: d['pallets']                for f, d in farm_data.items()}
-        farm_cajas        = {f: d['cajas']                  for f, d in farm_data.items()}
+        farm_pallets      = {f: d['pallets']                 for f, d in farm_data.items()}
+        farm_cajas        = {f: d['cajas']                   for f, d in farm_data.items()}
         farm_pallets_size = {f: d.get('pallets_by_size', {}) for f, d in farm_data.items()}
         total             = sum(farm_pallets.values())
         def tag(trips_list, dest, ttype):
@@ -334,7 +326,7 @@ def optimize_day(day_orders, unavailable_vehicle_ids=None):
             for t in ct:
                 consol_used.add(t.get('vehicle_id', ''))
             consol_trips.extend(ct)
-        vehicles_b      = [v for v in vehicles if v.get('vehicle_id') not in consol_used]
+        vehicles_b = [v for v in vehicles if v.get('vehicle_id') not in consol_used]
         cost_b_exp, trips_b = min_cost_assignment_bounded(total, vehicles_b)
         trips_b = assign_farms_to_trips(farm_pallets, farm_cajas, trips_b)
         tag(trips_b, port, 'export')
@@ -492,37 +484,6 @@ def generate_excel_bytes(orders, semana_num, unavailable_vehicle_ids_by_day=None
         consol_str = ', '.join(set(f for t in consol_trips for f in t['farms'])) if consol_trips else '-'
         bg   = 'F1F8E9' if sum_row % 2 == 0 else 'FFFFFF'
         vals = [day.capitalize(), d_viajes, d_cajas, int(d_pallets), d_cost, consol_str]
-        for ci, val in enumerate(vals, 1):
-            c = ws_sum.cell(row=sum_row, column=ci, value=val)
-            c.font      = Font(name='Arial', size=9)
-            c.fill      = PatternFill('solid', fgColor=bg)
-            c.alignment = Alignment(horizontal='center', vertical='center')
-            if ci == 5:
-                c.number_format = '"$"#,##0'
-            if ci == 3:
-                c.number_format = '#,##0'
-        sum_row += 1
-    vals = ['TOTAL SEMANA', grand['viajes'], grand['cajas'], int(grand['pallets']), grand['cost'], '']
-    for ci, val in enumerate(vals, 1):
-        c = ws_sum.cell(row=sum_row, column=ci, value=val)
-        c.font      = Font(name='Arial', size=9, bold=True)
-        c.fill      = PatternFill('solid', fgColor='FFE082')
-        c.alignment = Alignment(horizontal='center', vertical='center')
-        if ci == 5:
-            c.number_format = '"$"#,##0'
-        if ci == 3:
-            c.number_format = '#,##0'
-    ws_sum.row_dimensions[sum_row].height = 20
-    border_all(ws_sum, 2, sum_row, 1, 6)
-    for day in sorted_days:
-        if day not in day_results:
-            continue
-        write_day_sheet(wb, day, day_results[day], False)
-    buffer = io.BytesIO()
-    wb.save(buffer)
-    buffer.seek(0)
-    return buffer.getvalue(), grand
-day.capitalize(), d_viajes, d_cajas, int(d_pallets), d_cost, consol_str]
         for ci, val in enumerate(vals, 1):
             c = ws_sum.cell(row=sum_row, column=ci, value=val)
             c.font      = Font(name='Arial', size=9)
