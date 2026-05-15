@@ -184,11 +184,14 @@ def min_cost_assignment_bounded(total_pallets, vehicles):
         return float('inf'), []
     INF = float('inf')
     max_cap = sum(v['capacidad'] for v in vehicles)
-    dp_cost  = [INF] * (max_cap + 1)
-    dp_waste = [INF] * (max_cap + 1)
-    parent   = [None] * (max_cap + 1)
-    dp_cost[0]  = 0
-    dp_waste[0] = 0
+    dp_cost = [INF] * (max_cap + 1)
+    dp_cost[0] = 0
+    # Snapshot dp_cost BEFORE each vehicle is processed — used for traceback
+    # so we can tell exactly which vehicle improved each dp_cost[j].
+    # (Parent-pointer traceback is broken: processing vehicle v at j=60 sets
+    # parent[60]=(42,v), then at j=42 updates parent[42]=(24,v), creating a
+    # chain 60→42→24 that selects v twice.)
+    snapshots = [dp_cost[:]]
     for v in vehicles:
         cap  = v['capacidad']
         cost = v['costo']
@@ -196,13 +199,10 @@ def min_cost_assignment_bounded(total_pallets, vehicles):
             prev_j = j - cap
             if dp_cost[prev_j] == INF:
                 continue
-            new_cost  = dp_cost[prev_j] + cost
-            new_waste = dp_waste[prev_j]
-            if (new_cost < dp_cost[j] or
-                    (new_cost == dp_cost[j] and new_waste < dp_waste[j])):
-                dp_cost[j]  = new_cost
-                dp_waste[j] = new_waste
-                parent[j]   = (prev_j, v)
+            new_cost = dp_cost[prev_j] + cost
+            if new_cost < dp_cost[j]:
+                dp_cost[j] = new_cost
+        snapshots.append(dp_cost[:])
     best_j = -1
     for j in range(P, max_cap + 1):
         if dp_cost[j] == INF:
@@ -215,12 +215,21 @@ def min_cost_assignment_bounded(total_pallets, vehicles):
             best_j = j
     if best_j == -1:
         return INF, []
+    # Snapshot-based traceback: iterate vehicles in reverse order
     selected = []
     j = best_j
-    while j > 0 and parent[j] is not None:
-        prev_j, v = parent[j]
-        selected.append(v)
-        j = prev_j
+    for i in range(len(vehicles) - 1, -1, -1):
+        v    = vehicles[i]
+        cap  = v['capacidad']
+        cost = v['costo']
+        if j >= cap:
+            prev_j = j - cap
+            # Vehicle i was used at position j if it is what brought dp_cost
+            # from snapshots[i][prev_j] to snapshots[i+1][j]
+            if (snapshots[i][prev_j] != INF and
+                    snapshots[i][prev_j] + cost == snapshots[i + 1][j]):
+                selected.append(v)
+                j = prev_j
     trips     = []
     remaining = P
     for v in sorted(selected, key=lambda x: -x['capacidad']):
