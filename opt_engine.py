@@ -13,72 +13,62 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 VEHICLE_DISPLAY = {
-    'DEMETRIO_PATINETA': {'conductor': 'Demetrio',    'vehicle': 'Patineta 18P'},
-    'YUBER_MULA_20':     {'conductor': 'Yuber',        'vehicle': 'Mula 20P'},
-    'YUBER_MULA_22':     {'conductor': 'Yuber',        'vehicle': 'Mula 22P'},
-    'YUBER_MULA_24':     {'conductor': 'Yuber',        'vehicle': 'Mula 24P'},
-    'YUBER_MULA_26':     {'conductor': 'Yuber',        'vehicle': 'Mula 26P'},
-    'RAMON_CAMION':      {'conductor': 'Ramon',        'vehicle': 'Camion 8P'},
-    'MERBIN_CAMION':     {'conductor': 'Merbin',       'vehicle': 'Camion 8P'},
-    'YAC_MULA':          {'conductor': 'Yac',          'vehicle': 'Mula 20P'},
-    'CFS_CAMION':        {'conductor': 'CFS',          'vehicle': 'Camion 20P'},
-    'CFS_MULA':          {'conductor': 'CFS',          'vehicle': 'Mula 20P'},
-    'CARLOS_MARIO_MULA': {'conductor': 'Carlos Mario', 'vehicle': 'Mula 18P'},
+    'DEMETRIO_PATINETA': {'conductor': 'Demetrio', 'vehicle': 'Patineta 18P'},
+    'YUBER_MULA_20':     {'conductor': 'Yuber',    'vehicle': 'Mula 20P'},
+    'YUBER_MULA_22':     {'conductor': 'Yuber',    'vehicle': 'Mula 22P'},
+    'YUBER_MULA_24':     {'conductor': 'Yuber',    'vehicle': 'Mula 24P'},
+    'YUBER_MULA_26':     {'conductor': 'Yuber',    'vehicle': 'Mula 26P'},
+    'MERBIN_CAMION':     {'conductor': 'Merbin',   'vehicle': 'Camion 8P'},
+    'YAC_MULA':          {'conductor': 'Yac',      'vehicle': 'Mula 20P'},
+    'CFS_CAMION':        {'conductor': 'CFS',      'vehicle': 'Camion 20P'},
+    'CFS_MULA':          {'conductor': 'CFS',      'vehicle': 'Mula 20P'},
 }
 
 ALL_VEHICLE_IDS = list(VEHICLE_DISPLAY.keys())
 
 VEHICLES_BY_ROUTE = {
     ('CHIGORODO', 'PUERTO ANTIOQUIA'): [
-        {'conductor': 'DEMETRIO',     'tipo': 'PATINETA', 'capacidad': 18, 'costo': 700000,  'vehicle_id': 'DEMETRIO_PATINETA'},
-        {'conductor': 'YUBER',        'tipo': 'MULA',     'capacidad': 20, 'costo': 950000,  'vehicle_id': 'YUBER_MULA_20'},
-        {'conductor': 'YUBER',        'tipo': 'MULA',     'capacidad': 22, 'costo': 950000,  'vehicle_id': 'YUBER_MULA_22'},
-        {'conductor': 'YUBER',        'tipo': 'MULA',     'capacidad': 24, 'costo': 950000,  'vehicle_id': 'YUBER_MULA_24'},
-        {'conductor': 'YUBER',        'tipo': 'MULA',     'capacidad': 26, 'costo': 950000,  'vehicle_id': 'YUBER_MULA_26'},
-        {'conductor': 'RAMON',        'tipo': 'CAMION',   'capacidad': 8,  'costo': 600000,  'vehicle_id': 'RAMON_CAMION'},
-        {'conductor': 'YAC',          'tipo': 'MULA',     'capacidad': 20, 'costo': 1050000, 'vehicle_id': 'YAC_MULA'},
-        {'conductor': 'CARLOS MARIO', 'tipo': 'MULA',     'capacidad': 18, 'costo': 850000,  'vehicle_id': 'CARLOS_MARIO_MULA'},
+        {'conductor': 'DEMETRIO', 'tipo': 'PATINETA', 'capacidad': 18, 'costo': 850000,  'vehicle_id': 'DEMETRIO_PATINETA'},
+        {'conductor': 'YUBER',    'tipo': 'MULA',     'capacidad': 20, 'costo': 950000,  'vehicle_id': 'YUBER_MULA_20'},
+        {'conductor': 'YUBER',    'tipo': 'MULA',     'capacidad': 22, 'costo': 950000,  'vehicle_id': 'YUBER_MULA_22'},
+        {'conductor': 'YUBER',    'tipo': 'MULA',     'capacidad': 24, 'costo': 950000,  'vehicle_id': 'YUBER_MULA_24'},
+        {'conductor': 'YUBER',    'tipo': 'MULA',     'capacidad': 26, 'costo': 950000,  'vehicle_id': 'YUBER_MULA_26'},
+        {'conductor': 'YAC',      'tipo': 'MULA',     'capacidad': 20, 'costo': 1050000, 'vehicle_id': 'YAC_MULA'},
     ],
     ('CHIGORODO', 'UNIBAN ZUNGO'): [
-        {'conductor': 'DEMETRIO',     'tipo': 'PATINETA', 'capacidad': 18, 'costo': 700000,  'vehicle_id': 'DEMETRIO_PATINETA'},
-        {'conductor': 'YUBER',        'tipo': 'MULA',     'capacidad': 20, 'costo': 950000,  'vehicle_id': 'YUBER_MULA_20'},
-        {'conductor': 'YUBER',        'tipo': 'MULA',     'capacidad': 22, 'costo': 950000,  'vehicle_id': 'YUBER_MULA_22'},
-        {'conductor': 'YUBER',        'tipo': 'MULA',     'capacidad': 24, 'costo': 950000,  'vehicle_id': 'YUBER_MULA_24'},
-        {'conductor': 'YUBER',        'tipo': 'MULA',     'capacidad': 26, 'costo': 950000,  'vehicle_id': 'YUBER_MULA_26'},
-        {'conductor': 'RAMON',        'tipo': 'CAMION',   'capacidad': 8,  'costo': 600000,  'vehicle_id': 'RAMON_CAMION'},
-        {'conductor': 'MERBIN',       'tipo': 'CAMION',   'capacidad': 8,  'costo': 600000,  'vehicle_id': 'MERBIN_CAMION'},
+        {'conductor': 'DEMETRIO', 'tipo': 'PATINETA', 'capacidad': 18, 'costo': 850000, 'vehicle_id': 'DEMETRIO_PATINETA'},
+        {'conductor': 'YUBER',    'tipo': 'MULA',     'capacidad': 20, 'costo': 950000, 'vehicle_id': 'YUBER_MULA_20'},
+        {'conductor': 'YUBER',    'tipo': 'MULA',     'capacidad': 22, 'costo': 950000, 'vehicle_id': 'YUBER_MULA_22'},
+        {'conductor': 'YUBER',    'tipo': 'MULA',     'capacidad': 24, 'costo': 950000, 'vehicle_id': 'YUBER_MULA_24'},
+        {'conductor': 'YUBER',    'tipo': 'MULA',     'capacidad': 26, 'costo': 950000, 'vehicle_id': 'YUBER_MULA_26'},
+        {'conductor': 'MERBIN',   'tipo': 'CAMION',   'capacidad': 8,  'costo': 600000, 'vehicle_id': 'MERBIN_CAMION'},
     ],
     ('APARTADO', 'PUERTO ANTIOQUIA'): [
-        {'conductor': 'DEMETRIO',     'tipo': 'PATINETA', 'capacidad': 18, 'costo': 400000,  'vehicle_id': 'DEMETRIO_PATINETA'},
-        {'conductor': 'YUBER',        'tipo': 'MULA',     'capacidad': 20, 'costo': 600000,  'vehicle_id': 'YUBER_MULA_20'},
-        {'conductor': 'YUBER',        'tipo': 'MULA',     'capacidad': 22, 'costo': 600000,  'vehicle_id': 'YUBER_MULA_22'},
-        {'conductor': 'YUBER',        'tipo': 'MULA',     'capacidad': 24, 'costo': 600000,  'vehicle_id': 'YUBER_MULA_24'},
-        {'conductor': 'YUBER',        'tipo': 'MULA',     'capacidad': 26, 'costo': 600000,  'vehicle_id': 'YUBER_MULA_26'},
-        {'conductor': 'RAMON',        'tipo': 'CAMION',   'capacidad': 8,  'costo': 300000,  'vehicle_id': 'RAMON_CAMION'},
-        {'conductor': 'YAC',          'tipo': 'MULA',     'capacidad': 20, 'costo': 630000,  'vehicle_id': 'YAC_MULA'},
-        {'conductor': 'CFS',          'tipo': 'CAMION',   'capacidad': 20, 'costo': 440000,  'vehicle_id': 'CFS_CAMION'},
-        {'conductor': 'CFS',          'tipo': 'MULA',     'capacidad': 20, 'costo': 660000,  'vehicle_id': 'CFS_MULA'},
-        {'conductor': 'CARLOS MARIO', 'tipo': 'MULA',     'capacidad': 18, 'costo': 550000,  'vehicle_id': 'CARLOS_MARIO_MULA'},
+        {'conductor': 'DEMETRIO', 'tipo': 'PATINETA', 'capacidad': 18, 'costo': 550000, 'vehicle_id': 'DEMETRIO_PATINETA'},
+        {'conductor': 'YUBER',    'tipo': 'MULA',     'capacidad': 20, 'costo': 600000, 'vehicle_id': 'YUBER_MULA_20'},
+        {'conductor': 'YUBER',    'tipo': 'MULA',     'capacidad': 22, 'costo': 600000, 'vehicle_id': 'YUBER_MULA_22'},
+        {'conductor': 'YUBER',    'tipo': 'MULA',     'capacidad': 24, 'costo': 600000, 'vehicle_id': 'YUBER_MULA_24'},
+        {'conductor': 'YUBER',    'tipo': 'MULA',     'capacidad': 26, 'costo': 600000, 'vehicle_id': 'YUBER_MULA_26'},
+        {'conductor': 'YAC',      'tipo': 'MULA',     'capacidad': 20, 'costo': 630000, 'vehicle_id': 'YAC_MULA'},
+        {'conductor': 'CFS',      'tipo': 'CAMION',   'capacidad': 20, 'costo': 440000, 'vehicle_id': 'CFS_CAMION'},
+        {'conductor': 'CFS',      'tipo': 'MULA',     'capacidad': 20, 'costo': 660000, 'vehicle_id': 'CFS_MULA'},
     ],
     ('APARTADO', 'UNIBAN ZUNGO'): [
-        {'conductor': 'DEMETRIO',     'tipo': 'PATINETA', 'capacidad': 18, 'costo': 400000,  'vehicle_id': 'DEMETRIO_PATINETA'},
-        {'conductor': 'YUBER',        'tipo': 'MULA',     'capacidad': 20, 'costo': 600000,  'vehicle_id': 'YUBER_MULA_20'},
-        {'conductor': 'YUBER',        'tipo': 'MULA',     'capacidad': 22, 'costo': 600000,  'vehicle_id': 'YUBER_MULA_22'},
-        {'conductor': 'YUBER',        'tipo': 'MULA',     'capacidad': 24, 'costo': 600000,  'vehicle_id': 'YUBER_MULA_24'},
-        {'conductor': 'YUBER',        'tipo': 'MULA',     'capacidad': 26, 'costo': 600000,  'vehicle_id': 'YUBER_MULA_26'},
-        {'conductor': 'RAMON',        'tipo': 'CAMION',   'capacidad': 8,  'costo': 300000,  'vehicle_id': 'RAMON_CAMION'},
-        {'conductor': 'MERBIN',       'tipo': 'CAMION',   'capacidad': 8,  'costo': 300000,  'vehicle_id': 'MERBIN_CAMION'},
+        {'conductor': 'DEMETRIO', 'tipo': 'PATINETA', 'capacidad': 18, 'costo': 550000, 'vehicle_id': 'DEMETRIO_PATINETA'},
+        {'conductor': 'YUBER',    'tipo': 'MULA',     'capacidad': 20, 'costo': 600000, 'vehicle_id': 'YUBER_MULA_20'},
+        {'conductor': 'YUBER',    'tipo': 'MULA',     'capacidad': 22, 'costo': 600000, 'vehicle_id': 'YUBER_MULA_22'},
+        {'conductor': 'YUBER',    'tipo': 'MULA',     'capacidad': 24, 'costo': 600000, 'vehicle_id': 'YUBER_MULA_24'},
+        {'conductor': 'YUBER',    'tipo': 'MULA',     'capacidad': 26, 'costo': 600000, 'vehicle_id': 'YUBER_MULA_26'},
+        {'conductor': 'MERBIN',   'tipo': 'CAMION',   'capacidad': 8,  'costo': 300000, 'vehicle_id': 'MERBIN_CAMION'},
     ],
 }
 
 CONSOLIDACION_ROUTES = {
     'SALVAMENTO': [
         {'conductor': 'MERBIN', 'tipo': 'CAMION', 'capacidad': 14, 'costo': 150000, 'vehicle_id': 'MERBIN_CAMION'},
-        {'conductor': 'RAMON',  'tipo': 'CAMION', 'capacidad': 14, 'costo': 150000, 'vehicle_id': 'RAMON_CAMION'},
     ],
     'CHISPERO': [
         {'conductor': 'MERBIN', 'tipo': 'CAMION', 'capacidad': 14, 'costo': 150000, 'vehicle_id': 'MERBIN_CAMION'},
-        {'conductor': 'RAMON',  'tipo': 'CAMION', 'capacidad': 14, 'costo': 150000, 'vehicle_id': 'RAMON_CAMION'},
     ],
 }
 
@@ -502,6 +492,37 @@ def generate_excel_bytes(orders, semana_num, unavailable_vehicle_ids_by_day=None
         consol_str = ', '.join(set(f for t in consol_trips for f in t['farms'])) if consol_trips else '-'
         bg   = 'F1F8E9' if sum_row % 2 == 0 else 'FFFFFF'
         vals = [day.capitalize(), d_viajes, d_cajas, int(d_pallets), d_cost, consol_str]
+        for ci, val in enumerate(vals, 1):
+            c = ws_sum.cell(row=sum_row, column=ci, value=val)
+            c.font      = Font(name='Arial', size=9)
+            c.fill      = PatternFill('solid', fgColor=bg)
+            c.alignment = Alignment(horizontal='center', vertical='center')
+            if ci == 5:
+                c.number_format = '"$"#,##0'
+            if ci == 3:
+                c.number_format = '#,##0'
+        sum_row += 1
+    vals = ['TOTAL SEMANA', grand['viajes'], grand['cajas'], int(grand['pallets']), grand['cost'], '']
+    for ci, val in enumerate(vals, 1):
+        c = ws_sum.cell(row=sum_row, column=ci, value=val)
+        c.font      = Font(name='Arial', size=9, bold=True)
+        c.fill      = PatternFill('solid', fgColor='FFE082')
+        c.alignment = Alignment(horizontal='center', vertical='center')
+        if ci == 5:
+            c.number_format = '"$"#,##0'
+        if ci == 3:
+            c.number_format = '#,##0'
+    ws_sum.row_dimensions[sum_row].height = 20
+    border_all(ws_sum, 2, sum_row, 1, 6)
+    for day in sorted_days:
+        if day not in day_results:
+            continue
+        write_day_sheet(wb, day, day_results[day], False)
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return buffer.getvalue(), grand
+day.capitalize(), d_viajes, d_cajas, int(d_pallets), d_cost, consol_str]
         for ci, val in enumerate(vals, 1):
             c = ws_sum.cell(row=sum_row, column=ci, value=val)
             c.font      = Font(name='Arial', size=9)
