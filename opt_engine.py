@@ -76,7 +76,7 @@ FARM_ZONES = {
     'SANTA MARIA DEL MONTE': 'APARTADO',
     'STA MARIA DEL MONTE':   'APARTADO',
     'DONA FRANCIA':          'APARTADO',
-    'DOÑA FRANCIA':          'APARTADO',
+    'DONA FRANCIA':          'APARTADO',
     'CHISPERO':              'APARTADO',
     'SALVAMENTO':            'APARTADO',
     'JUANA PIO':             'CHIGORODO',
@@ -251,20 +251,17 @@ def assign_farms_to_trips(farm_pallets, farm_cajas, trips):
         trip['remaining'] = trip['pallets_cargados']
         trip['farms']     = {}
     for farm, fpallets in sorted_farms:
-        rem_pallets   = int(fpallets)
-        rem_cajas     = farm_cajas[farm]          # track exact cajas remaining
+        rem_pallets = int(fpallets)
+        rem_cajas   = farm_cajas[farm]
         for trip in trips:
             if trip['remaining'] > 0 and rem_pallets > 0:
-                take       = min(int(trip['remaining']), rem_pallets)
+                take        = min(int(trip['remaining']), rem_pallets)
                 rem_pallets -= take
-                # If this is the last chunk for this farm, assign all remaining
-                # cajas exactly so no caja is lost to rounding
                 if rem_pallets == 0:
                     take_cajas = rem_cajas
                 else:
                     ratio      = take / fpallets if fpallets > 0 else 0
-                    take_cajas = int(round(ratio * farm_cajas[farm]))
-                    take_cajas = min(take_cajas, rem_cajas)
+                    take_cajas = min(int(round(ratio * farm_cajas[farm])), rem_cajas)
                 trip['farms'][farm] = {'pallets': take, 'cajas': take_cajas}
                 trip['remaining']  -= take
                 rem_cajas          -= take_cajas
@@ -284,15 +281,10 @@ def optimize_day(day_orders, unavailable_vehicle_ids=None):
             route_groups[key][farm] = data
     all_trips        = []
     used_vehicle_ids = set()
-    # Rutas con MENOS opciones de vehiculos se procesan primero para que no
-    # queden sin capacidad cuando otras rutas acaparan los vehiculos compartidos.
-    # Desempate: mas pallets primero.
     sorted_routes = sorted(
         route_groups.items(),
-        key=lambda item: (
-            len(VEHICLES_BY_ROUTE.get(item[0], [])),
-            -sum(d['pallets'] for d in item[1].values()),
-        ),
+        key=lambda x: sum(d['pallets'] for d in x[1].values()),
+        reverse=True,
     )
     for (zone, port), farm_data in sorted_routes:
         def avail(v):
@@ -510,24 +502,6 @@ def generate_excel_bytes(orders, semana_num, unavailable_vehicle_ids_by_day=None
         sum_row += 1
     vals = ['TOTAL SEMANA', grand['viajes'], grand['cajas'], int(grand['pallets']), grand['cost'], '']
     for ci, val in enumerate(vals, 1):
-        c = ws_sum.cell(row=sum_row, column=ci, value=val)
-        c.font      = Font(name='Arial', size=9, bold=True)
-        c.fill      = PatternFill('solid', fgColor='FFE082')
-        c.alignment = Alignment(horizontal='center', vertical='center')
-        if ci == 5:
-            c.number_format = '"$"#,##0'
-        if ci == 3:
-            c.number_format = '#,##0'
-    ws_sum.row_dimensions[sum_row].height = 20
-    border_all(ws_sum, 2, sum_row, 1, 6)
-    for day in sorted_days:
-        if day not in day_results:
-            continue
-        write_day_sheet(wb, day, day_results[day], False)
-    buffer = io.BytesIO()
-    wb.save(buffer)
-    buffer.seek(0)
-    return buffer.getvalue(), grand
         c = ws_sum.cell(row=sum_row, column=ci, value=val)
         c.font      = Font(name='Arial', size=9, bold=True)
         c.fill      = PatternFill('solid', fgColor='FFE082')
