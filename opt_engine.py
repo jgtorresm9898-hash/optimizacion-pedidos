@@ -76,6 +76,7 @@ FARM_ZONES = {
     'SANTA MARIA DEL MONTE': 'APARTADO',
     'STA MARIA DEL MONTE':   'APARTADO',
     'DONA FRANCIA':          'APARTADO',
+    'DOÑA FRANCIA':          'APARTADO',
     'CHISPERO':              'APARTADO',
     'SALVAMENTO':            'APARTADO',
     'JUANA PIO':             'CHIGORODO',
