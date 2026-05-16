@@ -76,7 +76,7 @@ FARM_ZONES = {
     'SANTA MARIA DEL MONTE': 'APARTADO',
     'STA MARIA DEL MONTE':   'APARTADO',
     'DONA FRANCIA':          'APARTADO',
-    'DONA FRANCIA':          'APARTADO',
+    'DOÑA FRANCIA':          'APARTADO',
     'CHISPERO':              'APARTADO',
     'SALVAMENTO':            'APARTADO',
     'JUANA PIO':             'CHIGORODO',
@@ -200,6 +200,12 @@ def min_cost_assignment_bounded(total_pallets, vehicles):
         elif dp_cost[j] == dp_cost[best_j] and (j - P) < (best_j - P):
             best_j = j
     if best_j == -1:
+        # Capacity insufficient -- use best achievable coverage as fallback
+        for j in range(max_cap, -1, -1):
+            if dp_cost[j] != INF:
+                best_j = j
+                break
+    if best_j == -1:
         return INF, []
     selected = []
     j = best_j
@@ -281,9 +287,34 @@ def optimize_day(day_orders, unavailable_vehicle_ids=None):
             route_groups[key][farm] = data
     all_trips        = []
     used_vehicle_ids = set()
+
+    # Pre-compute available vehicles per route (before any are marked used)
+    _route_avail = {}
+    for _rk in route_groups:
+        _zone, _port = _rk
+        _route_avail[_rk] = [
+            v for v in VEHICLES_BY_ROUTE.get(_rk, [])
+            if v.get('vehicle_id', '') not in unavailable_vehicle_ids
+        ]
+
+    def _shared_demand(route_key):
+        """Pallets this route needs from the shared vehicle pool."""
+        my_vids    = {v['vehicle_id'] for v in _route_avail[route_key]}
+        other_vids = set()
+        for k in route_groups:
+            if k != route_key:
+                other_vids |= {v['vehicle_id'] for v in _route_avail[k]}
+        excl_cap = sum(
+            v['capacidad'] for v in _route_avail[route_key]
+            if v['vehicle_id'] not in other_vids
+        )
+        total_p = sum(d['pallets'] for d in route_groups[route_key].values())
+        return max(0, total_p - excl_cap)
+
+    # Routes that depend most on shared vehicles go first (most-constrained-first)
     sorted_routes = sorted(
         route_groups.items(),
-        key=lambda x: sum(d['pallets'] for d in x[1].values()),
+        key=lambda x: _shared_demand(x[0]),
         reverse=True,
     )
     for (zone, port), farm_data in sorted_routes:
