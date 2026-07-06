@@ -643,10 +643,16 @@ def optimize_day(day_orders, unavailable_vehicle_ids=None, relaxed=False):
     # Descartar viajes mediodía que salgan con menos del 80% de la
     # capacidad disponible de las fincas al mediodía — no vale la pena
     # mandar una mula medio vacía.
-    MEDIODIA_MIN_PCT = 0.0 if relaxed else 0.80
+    # Umbral mediodía por tipo de vehículo:
+    #   Mulas (24P): necesitan ≥ 80% = 19P para justificar el viaje de mañana
+    #   Patinetas (18P): umbral más suave 60% = 11P (rutas más cortas, menor costo)
+    def _mediodia_min(cap):
+        if relaxed:
+            return 0
+        return int(cap * (0.60 if cap <= 18 else 0.80))
     mediodia_trips = [t for t in mediodia_trips
                       if t.get('trip_type') != 'export'
-                      or t.get('pallets_cargados', 0) >= MEDIODIA_MIN_PCT * t.get('capacidad', 24)]
+                      or t.get('pallets_cargados', 0) >= _mediodia_min(t.get('capacidad', 24))]
     for t in mediodia_trips:
         t['hora'] = 'Mediodía'
 
