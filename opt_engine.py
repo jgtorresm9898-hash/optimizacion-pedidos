@@ -352,6 +352,11 @@ def _combined_fill(chigorodo_trips, apart_route_data):
         if spare <= 0:
             continue
 
+        # Fincas incompatibles por conductor en viaje combinado
+        # Edwin no puede hacer San Bartolo + Sta Maria Del Monte en el mismo viaje
+        _EDWIN_INCOMPAT = {'SAN BARTOLO', 'STA MARIA DEL MONTE'}
+        current_farms   = set(trip.get('farms', {}).keys())
+
         added_any = False
         for farm in sorted(apart_route_data, key=lambda f: -apart_route_data[f]['pallets']):
             if spare <= 0:
@@ -359,6 +364,10 @@ def _combined_fill(chigorodo_trips, apart_route_data):
             fdata = apart_route_data[farm]
             if fdata['pallets'] <= 0:
                 continue
+            # Restricción: Edwin no puede combinar San Bartolo y Sta Maria Del Monte
+            if conductor == 'EDWIN' and farm in _EDWIN_INCOMPAT:
+                if current_farms & _EDWIN_INCOMPAT:
+                    continue
             take_p = min(spare, fdata['pallets'])
             # Cajas proporcionales (exactas si es el ultimo trozo)
             if take_p == fdata['pallets']:
@@ -1194,7 +1203,23 @@ def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
             border_all(ws, row, row, 1, NCOLS)
             ws.row_dimensions[row].height = 16
             row += 1
-        row += 1
+
+        # Fila subtotal del día
+        day_p  = sum(t.get('pallets_cargados',0) for t in a_trips)
+        day_c  = int(sum(sum(f.get('cajas',0) for f in t['farms'].values()) for t in a_trips))
+        day_co = int(sum(t.get('costo',0) for t in a_trips))
+        day_color = DAY_COLORS.get(dia, C_TITLE)
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=7)
+        cf(ws.cell(row,1),
+           'SUBTOTAL {} — {} viajes  ·  {:,} cajas'.format(
+               dia.upper(), len(a_trips), day_c),
+           bold=True, bg=day_color, color='FFFFFF', size=9)
+        cf(ws.cell(row,9),  int(day_p),  bold=True, bg=day_color, color='FFFFFF', size=9)
+        cf(ws.cell(row,10), day_co, bold=True, bg=day_color, color='FFFFFF', size=9,
+           num_fmt='"$"#,##0')
+        border_all(ws, row, row, 1, NCOLS)
+        ws.row_dimensions[row].height = 16
+        row += 2
 
     ws.freeze_panes = 'B4'
 
