@@ -1249,87 +1249,144 @@ def write_day_sheet(wb, day, trips, first_sheet):
     else:
         ws = wb.create_sheet(title=day)
 
-    # Fila 1: titulo
-    ws.merge_cells('A1:K1')
-    c           = ws['A1']
-    c.value     = '{} {}'.format(DAY_EMOJIS.get(day, ''), day)
-    c.font      = Font(name='Arial', size=13, bold=True, color='FFFFFF')
+    NCOLS = 12   # columnas totales
+
+    # Fila 1: titulo día + resumen
+    export_trips = [t for t in trips if t.get('trip_type') == 'export']
+    total_cajas_dia  = sum(sum(d.get('cajas', 0) for d in t['farms'].values())
+                           for t in export_trips)
+    total_pallets_dia = sum(t.get('pallets_cargados', 0) for t in export_trips)
+    total_costo_dia   = sum(t.get('costo', 0) for t in export_trips)
+    title_str = '{} {}  —  {} viajes  ·  {:,} cajas  ·  {} pallets  ·  ${:,}'.format(
+        DAY_EMOJIS.get(day, ''), day,
+        len(export_trips), int(total_cajas_dia),
+        int(total_pallets_dia), int(total_costo_dia)
+    )
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=NCOLS)
+    c           = ws.cell(1, 1, title_str)
+    c.font      = Font(name='Arial', size=12, bold=True, color='FFFFFF')
     c.fill      = PatternFill('solid', fgColor=color)
     c.alignment = Alignment(horizontal='center', vertical='center')
     ws.row_dimensions[1].height = 28
 
     # Fila 2: cabeceras
-    headers = ['CONDUCTOR', 'VEHICULO', 'RUTA', 'HORA', 'PALLETS CARGADOS',
-               'CAJAS', 'PALLETS NEGOCIADOS', 'PALLETS EXTRA',
-               'COSTO BASE', 'COSTO EXTRA', 'COSTO TOTAL']
-    col_widths = [16, 22, 38, 10, 16, 12, 18, 14, 14, 14, 14]
+    headers    = ['#', 'CONDUCTOR', 'VEHICULO', 'CAP.', 'RUTA',
+                  'CAJAS POR FINCA', 'PALLETS POR FINCA',
+                  'TOTAL CAJAS', 'PALLETS', 'HORA', 'ENTREGAR EN', 'COSTO']
+    col_widths = [4,   16,          22,       6,     38,
+                  30,              28,
+                  11,          9,        10,     16,           14]
     for ci, (h, w) in enumerate(zip(headers, col_widths), 1):
         c           = ws.cell(row=2, column=ci, value=h)
         c.font      = Font(name='Arial', size=9, bold=True, color='FFFFFF')
         c.fill      = PatternFill('solid', fgColor=color)
         c.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
         ws.column_dimensions[get_column_letter(ci)].width = w
-    ws.row_dimensions[2].height = 20
+    ws.row_dimensions[2].height = 22
 
-    row        = 3
-    day_cost   = 0
-    day_cajas  = 0
+    row         = 3
+    day_cost    = 0
+    day_cajas   = 0
     day_pallets = 0
-    day_viajes = 0
-    alt_colors = ['FFFFFF', 'F1F8E9']
+    day_viajes  = 0
+    alt_colors  = ['FFFFFF', 'F1F8E9']
+    trip_num    = 0
 
     for trip in trips:
         if trip.get('trip_type') != 'export':
             continue
+        trip_num  += 1
         hora       = trip.get('hora', '')
         conductor  = trip.get('conductor', '')
-        vehicle    = VEHICLE_DISPLAY.get(trip.get('vehicle_id', ''), {}).get('vehicle', trip.get('vehicle_id', ''))
+        vehicle    = VEHICLE_DISPLAY.get(trip.get('vehicle_id', ''), {}).get('vehicle',
+                                          trip.get('vehicle_id', ''))
+        cap        = trip.get('capacidad', '')
         zone       = trip.get('zone', '')
         farms      = trip.get('farms', {})
         pallets    = trip.get('pallets_cargados', 0)
         costo      = trip.get('costo', 0)
-        costo_base = trip.get('costo_base', costo)
-        pal_neg    = trip.get('pallets_negociados', pallets)
-        extra_p    = max(0, pallets - pal_neg)
-        extra_c    = costo - costo_base
+        destination = trip.get('destination', '')
 
-        conductor_label = '{} [{}]'.format(conductor, hora) if hora else conductor
+        # farm_pallets_size: {farm: {size: count}} para toda la finca
+        farm_psize       = trip.get('farm_pallets_size', {})
+        farm_total_pals  = trip.get('farm_total_pallets', {})
 
+        # Ruta
         farm_zones_in_trip = {FARM_ZONES.get(f, zone) for f in farms}
         if len(farm_zones_in_trip) > 1:
             zone_label = 'Chigorodo -> Apartado'
         else:
             zone_label = list(farm_zones_in_trip)[0].title() if farm_zones_in_trip else zone.title()
-
         if len(farms) == 1:
             fname = list(farms.keys())[0]
-            ruta  = '-> {} ({})'.format(fname, zone_label)
+            ruta  = '-> {} ({})'.format(fname.title(), zone_label)
         else:
-            ruta = '-> {} ({})'.format(' -> '.join(farms.keys()), zone_label)
+            ruta  = '-> {} ({})'.format(
+                ' -> '.join(f.title() for f in farms.keys()), zone_label)
 
-        cajas = sum(d.get('cajas', 0) for d in farms.values())
+        # Cajas por finca: "FINCA1: 1,234 | FINCA2: 567"
+        cajas_total = sum(d.get('cajas', 0) for d in farms.values())
+        if len(farms) == 1:
+            fname = list(farms.keys())[0]
+            cajas_str = '{}: {:,}'.format(fname.title(), farms[fname].get('cajas', 0))
+        else:
+            cajas_str = '  |  '.join(
+                '{}: {:,}'.format(fn.title(), fd.get('cajas', 0))
+                for fn, fd in farms.items()
+            )
+
+        # Pallets por finca con tamaño: "FINCA1: 12P (22c) | FINCA2: 8P (55c) + 1P (44c)"
+        pallet_parts = []
+        for fn, fd in farms.items():
+            fp_assigned = fd.get('pallets', 0)
+            fp_total    = farm_total_pals.get(fn, fp_assigned) or fp_assigned
+            psz         = farm_psize.get(fn, {})
+            lbl         = format_pallets_by_size(psz, fp_total) if psz else '{}P'.format(fp_assigned)
+            pallet_parts.append('{}: {}'.format(fn.title(), lbl))
+        pallets_str = '  |  '.join(pallet_parts)
 
         bg = alt_colors[(row - 3) % 2]
-        vals = [conductor_label, vehicle, ruta, hora, pallets,
-                cajas, pal_neg, extra_p, costo_base, max(0, extra_c), costo]
+        vals = [trip_num, conductor, vehicle, cap, ruta,
+                cajas_str, pallets_str,
+                int(cajas_total), int(pallets), hora, destination, costo]
         for ci, val in enumerate(vals, 1):
-            c           = ws.cell(row=row, column=ci, value=val)
+            c = ws.cell(row=row, column=ci, value=val)
             c.font      = Font(name='Arial', size=9)
             c.fill      = PatternFill('solid', fgColor=bg)
-            c.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-            if ci in (9, 10, 11):
+            c.alignment = Alignment(horizontal='center' if ci not in (5, 6, 7) else 'left',
+                                    vertical='center', wrap_text=True)
+            if ci == 12:
                 c.number_format = '"$"#,##0'
             if ci == 8:
                 c.number_format = '#,##0'
-        ws.row_dimensions[row].height = 20
+        ws.row_dimensions[row].height = 22
 
         day_cost    += costo
-        day_cajas   += cajas
+        day_cajas   += cajas_total
         day_pallets += pallets
         day_viajes  += 1
         row         += 1
 
-    border_all(ws, 2, row - 1, 1, 11)
+    # Fila TOTAL DEL DÍA
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=7)
+    c = ws.cell(row, 1, 'TOTAL DEL DÍA')
+    c.font      = Font(name='Arial', size=9, bold=True, color='FFFFFF')
+    c.fill      = PatternFill('solid', fgColor=color)
+    c.alignment = Alignment(horizontal='center', vertical='center')
+    for ci, (val, fmt) in enumerate([(int(day_cajas), '#,##0'),
+                                      (int(day_pallets), '#,##0'),
+                                      ('', None),
+                                      ('', None),
+                                      (day_cost, '"$"#,##0')], 8):
+        c = ws.cell(row, ci, val)
+        c.font      = Font(name='Arial', size=9, bold=True, color='FFFFFF')
+        c.fill      = PatternFill('solid', fgColor=color)
+        c.alignment = Alignment(horizontal='center', vertical='center')
+        if fmt:
+            c.number_format = fmt
+    ws.row_dimensions[row].height = 20
+
+    border_all(ws, 2, row, 1, NCOLS)
     ws.freeze_panes = 'A3'
     return day_cost, day_cajas, day_pallets, day_viajes
 
