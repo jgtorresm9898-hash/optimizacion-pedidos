@@ -1004,7 +1004,6 @@ def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
     row += 1
 
     # Fila de grupos
-    ws.merge_cells(start_row=row, start_column=1, end_row=row+1, end_column=1)
     cell_fmt(ws.cell(row, 1), 'DÍA', bold=True, bg=HDR2_BG, color='FFFFFF', size=9)
     ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=5)
     cell_fmt(ws.cell(row, 2), 'PEDIDO BANAFRUT', bold=True, bg=ORIG_HDR, color='FFFFFF', size=9)
@@ -1016,7 +1015,7 @@ def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
     row += 1
 
     # Sub-cabeceras
-    for ci, h in enumerate(['', 'Viajes', 'Cajas', 'Pallets', 'Costo',
+    for ci, h in enumerate(['DÍA', 'Viajes', 'Cajas', 'Pallets', 'Costo',
                                  'Viajes', 'Cajas', 'Pallets', 'Costo',
                                  'Pallets', 'Costo'], 1):
         cell_fmt(ws.cell(row, ci), h, bold=True, bg='ECEFF1', size=8)
