@@ -1241,7 +1241,7 @@ def border_all(ws, min_row, max_row, min_col, max_col):
             ws.cell(r, c).border = b
 
 
-def write_day_sheet(wb, day, trips, first_sheet):
+def write_day_sheet(wb, day, trips, first_sheet, day_orders=None):
     color = DAY_COLORS.get(day, '1B5E20')
     if first_sheet:
         ws       = wb.active
@@ -1387,6 +1387,92 @@ def write_day_sheet(wb, day, trips, first_sheet):
     ws.row_dimensions[row].height = 20
 
     border_all(ws, 2, row, 1, NCOLS)
+
+    # ── Tabla PEDIDO BANAFRUT ─────────────────────────────────
+    if day_orders:
+        row += 2
+        # Cabecera
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=NCOLS)
+        c = ws.cell(row, 1, 'PEDIDO BANAFRUT — lo que exige el cliente')
+        c.font      = Font(name='Arial', size=10, bold=True, color='FFFFFF')
+        c.fill      = PatternFill('solid', fgColor='1565C0')
+        c.alignment = Alignment(horizontal='center', vertical='center')
+        ws.row_dimensions[row].height = 20
+        row += 1
+
+        # Sub-cabeceras
+        bana_hdrs = ['FINCA', 'CAJAS PEDIDAS', 'PALLETS PEDIDOS', 'CAJAS ENVIADAS', 'PALLETS ENVIADOS', 'DIFERENCIA P', '']
+        bana_cols = [1, 2, 3, 4, 5, 6, 7]
+        bana_wids = [22, 14, 14, 14, 14, 14, 6]
+        for ci, h in enumerate(bana_hdrs, 1):
+            c = ws.cell(row, ci, h)
+            c.font      = Font(name='Arial', size=9, bold=True, color='FFFFFF')
+            c.fill      = PatternFill('solid', fgColor='1976D2')
+            c.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        border_all(ws, row, row, 1, 6)
+        ws.row_dimensions[row].height = 16
+        row += 1
+
+        # Calcular pallets enviados por finca desde los viajes
+        shipped_pallets = {}
+        shipped_cajas   = {}
+        for t in trips:
+            if t.get('trip_type') != 'export':
+                continue
+            for fn, fd in t['farms'].items():
+                shipped_pallets[fn] = shipped_pallets.get(fn, 0) + fd.get('pallets', 0)
+                shipped_cajas[fn]   = shipped_cajas.get(fn, 0)   + fd.get('cajas', 0)
+
+        alt = ['FFFFFF', 'E3F2FD']
+        total_ped_c = 0; total_ped_p = 0
+        total_env_c = 0; total_env_p = 0
+        fi = 0
+        for farm, port_data in sorted(day_orders.items()):
+            ordered_c = sum(d['cajas']   for d in port_data.values())
+            ordered_p = sum(d['pallets'] for d in port_data.values())
+            sent_p    = shipped_pallets.get(farm, 0)
+            sent_c    = shipped_cajas.get(farm, 0)
+            diff_p    = sent_p - ordered_p   # negativo = falta por enviar
+            bg = alt[fi % 2]
+            fi += 1
+            diff_color = 'A32D2D' if diff_p < 0 else ('3B6D11' if diff_p > 0 else '000000')
+            diff_str   = str(diff_p) if diff_p != 0 else '✓'
+            diff_bg    = 'FFEBEE' if diff_p < 0 else ('E8F5E9' if diff_p > 0 else bg)
+
+            vals = [farm.title(), ordered_c, ordered_p, sent_c, sent_p, diff_str, '']
+            for ci, val in enumerate(vals, 1):
+                c = ws.cell(row, ci, val)
+                c.font      = Font(name='Arial', size=9,
+                                   color=diff_color if ci == 6 else '000000',
+                                   bold=(ci == 6 and diff_p != 0))
+                c.fill      = PatternFill('solid', fgColor=diff_bg if ci == 6 else bg)
+                c.alignment = Alignment(horizontal='left' if ci == 1 else 'center',
+                                        vertical='center')
+                if ci in (2, 3, 4, 5):
+                    c.number_format = '#,##0'
+            border_all(ws, row, row, 1, 6)
+            ws.row_dimensions[row].height = 15
+            total_ped_c += ordered_c; total_ped_p += ordered_p
+            total_env_c += sent_c;    total_env_p += sent_p
+            row += 1
+
+        # Fila TOTAL
+        tdiff = total_env_p - total_ped_p
+        tdiff_str = str(tdiff) if tdiff != 0 else '✓ Todo enviado'
+        tdiff_col = 'A32D2D' if tdiff < 0 else '3B6D11'
+        total_vals = ['TOTAL', total_ped_c, total_ped_p, total_env_c, total_env_p, tdiff_str, '']
+        for ci, val in enumerate(total_vals, 1):
+            c = ws.cell(row, ci, val)
+            c.font      = Font(name='Arial', size=9, bold=True,
+                               color=tdiff_col if ci == 6 else 'FFFFFF')
+            c.fill      = PatternFill('solid', fgColor='1565C0')
+            c.alignment = Alignment(horizontal='left' if ci == 1 else 'center',
+                                    vertical='center')
+            if ci in (2, 3, 4, 5):
+                c.number_format = '#,##0'
+        border_all(ws, row, row, 1, 6)
+        ws.row_dimensions[row].height = 16
+
     ws.freeze_panes = 'A3'
     return day_cost, day_cajas, day_pallets, day_viajes
 
@@ -1515,7 +1601,7 @@ def generate_excel_bytes(orders, semana_num, unavailable_vehicle_ids_by_day=None
         if day not in day_results:
             continue
         trips = day_results[day]
-        write_day_sheet(wb, day, trips, False)
+        write_day_sheet(wb, day, trips, False, day_orders=orders.get(day, {}))
 
     # Hoja: Pedido Sugerido
     adjusted_orders, inter_day_moves = compute_inter_day_moves(orders)
