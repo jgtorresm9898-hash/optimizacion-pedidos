@@ -622,7 +622,7 @@ def _compute_tarde_demand(day_orders, mediodia_trips):
 
 
 # ── Optimizacion diaria (dos fases: mediodía + tarde) ────────
-def optimize_day(day_orders, unavailable_vehicle_ids=None):
+def optimize_day(day_orders, unavailable_vehicle_ids=None, relaxed=False):
     """
     Optimiza un día completo en dos fases:
     - Mediodía: demanda capada a FARM_MEDIODIA_MAX. Sin mezcla de zonas.
@@ -643,7 +643,7 @@ def optimize_day(day_orders, unavailable_vehicle_ids=None):
     # Descartar viajes mediodía que salgan con menos del 80% de la
     # capacidad disponible de las fincas al mediodía — no vale la pena
     # mandar una mula medio vacía.
-    MEDIODIA_MIN_PCT = 0.80
+    MEDIODIA_MIN_PCT = 0.0 if relaxed else 0.80
     mediodia_trips = [t for t in mediodia_trips
                       if t.get('trip_type') != 'export'
                       or t.get('pallets_cargados', 0) >= MEDIODIA_MIN_PCT * t.get('capacidad', 24)]
@@ -663,7 +663,7 @@ def optimize_day(day_orders, unavailable_vehicle_ids=None):
 
     # Filtro tarde: descartar viajes con menos de 5 pallets
     # (remanentes mínimos — se consolidan al día siguiente).
-    TARDE_MIN_PALLETS = 5
+    TARDE_MIN_PALLETS = 0 if relaxed else 5
     tarde_trips = [t for t in tarde_trips
                    if t.get('trip_type') != 'export'
                    or t.get('pallets_cargados', 0) >= TARDE_MIN_PALLETS]
@@ -1364,7 +1364,7 @@ def _write_trip_section(ws, start_row, trips, color, title, NCOLS):
     return row, sec_cajas, sec_pallets, sec_costo, sec_viajes
 
 
-def write_day_sheet(wb, day, orig_trips, sug_trips, first_sheet, banafrut_orders=None):
+def write_day_sheet(wb, day, orig_trips, sug_trips, first_sheet, banafrut_orders=None, inter_day_moves=None):
     NCOLS   = 12
     color   = DAY_COLORS.get(day, '1B5E20')
     ORIG_C  = '1565C0'   # azul — Banafrut original
@@ -1398,22 +1398,49 @@ def write_day_sheet(wb, day, orig_trips, sug_trips, first_sheet, banafrut_orders
     row = 2
 
     # ── Sección 1: PEDIDO BANAFRUT ────────────────────────────
+    b_ordered_p = int(sum(d.get('pallets', 0) for d in (banafrut_orders or {}).values()))
+    b_ordered_c = int(sum(d.get('cajas', 0)   for d in (banafrut_orders or {}).values()))
+    b_orig_exp  = [t for t in orig_trips if t.get('trip_type') == 'export']
+    b_shipped_p = int(sum(t.get('pallets_cargados', 0) for t in b_orig_exp))
+    b_shipped_c = int(sum(sum(f.get('cajas', 0) for f in t['farms'].values()) for t in b_orig_exp))
+    b_unshipped = max(0, b_ordered_p - b_shipped_p)
+    if b_unshipped > 0:
+        _b_title = 'PEDIDO BANAFRUT — Sin modificaciones  ({} ordenados | {} enviados | ⚠️ {}P sin despachar)'.format(
+            '{}P · {:,}c'.format(b_ordered_p, b_ordered_c),
+            '{}P · {:,}c'.format(b_shipped_p, b_shipped_c),
+            b_unshipped)
+    else:
+        _b_title = 'PEDIDO BANAFRUT — Sin modificaciones  ({}P  ·  {:,} cajas  ·  ${:,})'.format(
+            b_shipped_p, b_shipped_c,
+            int(sum(t.get('costo', 0) for t in b_orig_exp)))
     row, b_cajas, b_pallets, b_costo, b_viajes = _write_trip_section(
-        ws, row, orig_trips, ORIG_C,
-        'PEDIDO BANAFRUT — Sin modificaciones  ({}P  ·  {:,} cajas  ·  ${:,})'.format(
-            int(sum(t.get('pallets_cargados',0) for t in orig_trips if t.get('trip_type')=='export')),
-            int(sum(sum(f.get('cajas',0) for f in t['farms'].values())
-                    for t in orig_trips if t.get('trip_type')=='export')),
-            int(sum(t.get('costo',0) for t in orig_trips if t.get('trip_type')=='export'))),
-        NCOLS)
+        ws, row, orig_trips, ORIG_C, _b_title, NCOLS)
     row += 1  # espacio
 
     # ── Sección 2: NUESTRA SUGERENCIA ─────────────────────────
+    _moves = inter_day_moves or {}
+    _defer_out = sum(m.get('pallets', 0) for m in _moves.get(day, []) if m.get('type') == 'deferral')
+    _defer_in  = sum(m.get('pallets', 0) for m in _moves.get(day, []) if m.get('type') == 'anticipation')
+    # Also check other days for deferrals TO this day
+    _moved_to  = sum(
+        m.get('pallets', 0)
+        for d2, mvs in _moves.items()
+        for m in mvs
+        if m.get('type') == 'deferral' and m.get('to_day') == day
+    )
+    if _defer_out or _moved_to:
+        _extra = []
+        if _defer_out:
+            _extra.append('↓ {}P diferidos al día siguiente'.format(_defer_out))
+        if _moved_to:
+            _extra.append('↑ {}P recibidos del día anterior'.format(_moved_to))
+        _s_title = 'NUESTRA SUGERENCIA — Optimizado  ({}P  ·  {:,} cajas)  {}'.format(
+            int(sug_p), int(sug_c), '  |  '.join(_extra))
+    else:
+        _s_title = 'NUESTRA SUGERENCIA — Optimizado  ({}P  ·  {:,} cajas  ·  ${:,})'.format(
+            int(sug_p), int(sug_c), int(sug_co))
     row, s_cajas, s_pallets, s_costo, s_viajes = _write_trip_section(
-        ws, row, sug_trips, SUG_C,
-        'NUESTRA SUGERENCIA — Optimizado  ({}P  ·  {:,} cajas  ·  ${:,})'.format(
-            int(sug_p), int(sug_c), int(sug_co)),
-        NCOLS)
+        ws, row, sug_trips, SUG_C, _s_title, NCOLS)
 
     ws.freeze_panes = 'A3'
     return s_costo, s_cajas, s_pallets, s_viajes
@@ -1427,7 +1454,7 @@ def generate_excel_bytes(orders, semana_num, unavailable_vehicle_ids_by_day=None
     day_results = {}
     for day in sorted_days:
         unavail = unavailable_vehicle_ids_by_day.get(day, set())
-        trips   = optimize_day(orders[day], unavailable_vehicle_ids=unavail)
+        trips   = optimize_day(orders[day], unavailable_vehicle_ids=unavail, relaxed=True)
         if trips:
             day_results[day] = trips
     if not day_results:
@@ -1548,13 +1575,23 @@ def generate_excel_bytes(orders, semana_num, unavailable_vehicle_ids_by_day=None
     for ci, w in enumerate([14, 22, 16, 28, 14, 13], 1):
         ws_sum.column_dimensions[get_column_letter(ci)].width = w
 
+    # Build per-day movement index for write_day_sheet headers
+    _, _raw_moves = compute_inter_day_moves(orders)
+    inter_day_moves_by_day = {}
+    for mv in (_raw_moves or []):
+        fd = mv.get('from_day', '')
+        td = mv.get('to_day', '')
+        inter_day_moves_by_day.setdefault(fd, []).append({**mv, 'type': 'deferral'})
+        inter_day_moves_by_day.setdefault(td, []).append({**mv, 'type': 'anticipation'})
+
     for day in sorted_days:
         if day not in day_results and day not in sug_day_results:
             continue
         orig_t = day_results.get(day, [])
         sug_t  = sug_day_results.get(day, [])
         write_day_sheet(wb, day, orig_t, sug_t, False,
-                        banafrut_orders=orders.get(day, {}))
+                        banafrut_orders=orders.get(day, {}),
+                        inter_day_moves=inter_day_moves_by_day)
 
     # Hoja: Pedido Sugerido
     adjusted_orders, inter_day_moves = compute_inter_day_moves(orders)
