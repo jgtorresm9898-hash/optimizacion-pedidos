@@ -652,10 +652,14 @@ def optimize_day(day_orders, unavailable_vehicle_ids=None, relaxed=False):
 
     # Fase 2: Tarde — sobrante, combined fill habilitado
     mediodia_vids = {t['vehicle_id'] for t in mediodia_trips}
+    # Viaje1 de conductores con 2 slots (Demetrio/Edwin): si no salió en mediodía,
+    # bloquearlo también en tarde — un conductor no puede hacer 2 viajes de tarde.
+    VIAJE1_VIDS = {'DEMETRIO_PATINETA_1', 'EDWIN_MULA_1'}
+    unused_viaje1 = VIAJE1_VIDS - mediodia_vids - unavailable_vehicle_ids
     tarde_orders  = _compute_tarde_demand(day_orders, mediodia_trips)
     tarde_trips   = _optimize_phase(
         tarde_orders,
-        unavailable_vehicle_ids=unavailable_vehicle_ids | mediodia_vids,
+        unavailable_vehicle_ids=unavailable_vehicle_ids | mediodia_vids | unused_viaje1,
         enable_combined_fill=True,
     )
     for t in tarde_trips:
@@ -991,6 +995,106 @@ def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
     row += 1
 
     # ══════════════════════════════════════════════════════════════
+    # SECCIÓN 0: RESUMEN COMPARATIVO — Banafrut vs Sugerido totales
+    # ══════════════════════════════════════════════════════════════
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=NCOLS)
+    cell_fmt(ws.cell(row, 1), 'RESUMEN COMPARATIVO — BANAFRUT vs SUGERIDO',
+             bold=True, bg='263238', color='FFFFFF', size=10)
+    ws.row_dimensions[row].height = 20
+    row += 1
+
+    # Fila de grupos
+    ws.merge_cells(start_row=row, start_column=1, end_row=row+1, end_column=1)
+    cell_fmt(ws.cell(row, 1), 'DÍA', bold=True, bg=HDR2_BG, color='FFFFFF', size=9)
+    ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=5)
+    cell_fmt(ws.cell(row, 2), 'PEDIDO BANAFRUT', bold=True, bg=ORIG_HDR, color='FFFFFF', size=9)
+    ws.merge_cells(start_row=row, start_column=6, end_row=row, end_column=9)
+    cell_fmt(ws.cell(row, 6), 'NUESTRA SUGERENCIA', bold=True, bg=SB_HDR, color='FFFFFF', size=9)
+    ws.merge_cells(start_row=row, start_column=10, end_row=row, end_column=NCOLS)
+    cell_fmt(ws.cell(row, 10), 'DIFERENCIA (+/−)', bold=True, bg=MOVE_HDR, color='FFFFFF', size=9)
+    ws.row_dimensions[row].height = 16
+    row += 1
+
+    # Sub-cabeceras
+    for ci, h in enumerate(['', 'Viajes', 'Cajas', 'Pallets', 'Costo',
+                                 'Viajes', 'Cajas', 'Pallets', 'Costo',
+                                 'Pallets', 'Costo'], 1):
+        cell_fmt(ws.cell(row, ci), h, bold=True, bg='ECEFF1', size=8)
+    border_all(ws, row-1, row, 1, NCOLS)
+    ws.row_dimensions[row].height = 14
+    row += 1
+
+    grand_b0 = {'v':0,'c':0,'p':0,'co':0}
+    grand_s0 = {'v':0,'c':0,'p':0,'co':0}
+    for ri0, dia0 in enumerate(dias):
+        unavail0 = unavailable_vehicle_ids_by_day.get(dia0, set())
+        b_exp0 = [t for t in optimize_day(orders_orig.get(dia0, {}),
+                  unavailable_vehicle_ids=unavail0, relaxed=True)
+                  if t.get('trip_type') == 'export']
+        sug_d0 = adjusted_orders.get(dia0, {})
+        s_exp0 = ([t for t in optimize_day(sug_d0, unavailable_vehicle_ids=unavail0)
+                   if t.get('trip_type') == 'export'] if sug_d0 else [])
+        bv=len(b_exp0)
+        bc=int(sum(sum(f['cajas'] for f in t['farms'].values()) for t in b_exp0))
+        bp=int(sum(t['pallets_cargados'] for t in b_exp0))
+        bco=int(sum(t['costo'] for t in b_exp0))
+        sv=len(s_exp0)
+        sc=int(sum(sum(f['cajas'] for f in t['farms'].values()) for t in s_exp0))
+        sp=int(sum(t['pallets_cargados'] for t in s_exp0))
+        sco=int(sum(t['costo'] for t in s_exp0))
+        dp=sp-bp; dco=sco-bco
+        bg0 = alt[ri0 % 2]
+        dp_col  = 'C62828' if dp<0 else ('1B5E20' if dp>0 else '000000')
+        dco_col = '1B5E20' if dco<0 else ('C62828' if dco>0 else '000000')
+        row_vals = [dia0.capitalize(), bv, bc, bp, bco, sv, sc, sp, sco,
+                    ('+' if dp>0 else '')+str(dp) if dp!=0 else '-',
+                    dco if dco!=0 else '-']
+        for ci0, val0 in enumerate(row_vals, 1):
+            c0 = ws.cell(row, ci0)
+            if ci0 == 5:
+                cell_fmt(c0, bco, size=8, bg=bg0, num_fmt='"$"#,##0')
+            elif ci0 == 9:
+                cell_fmt(c0, sco, size=8, bg=bg0, num_fmt='"$"#,##0')
+            elif ci0 in (3,7):
+                cell_fmt(c0, bc if ci0==3 else sc, size=8, bg=bg0, num_fmt='#,##0')
+            elif ci0 == 10:
+                cell_fmt(c0, val0, size=8, bg=bg0, color=dp_col,
+                         bold=(dp!=0), halign='center')
+            elif ci0 == 11:
+                cell_fmt(c0, dco if dco!=0 else '-', size=8, bg=bg0,
+                         color=dco_col, bold=(dco!=0),
+                         num_fmt='"$"#,##0' if dco!=0 else '@')
+            else:
+                cell_fmt(c0, val0, size=8, bg=bg0)
+        grand_b0['v']+=bv; grand_b0['c']+=bc; grand_b0['p']+=bp; grand_b0['co']+=bco
+        grand_s0['v']+=sv; grand_s0['c']+=sc; grand_s0['p']+=sp; grand_s0['co']+=sco
+        border_all(ws, row, row, 1, NCOLS)
+        ws.row_dimensions[row].height = 14
+        row += 1
+
+    # Fila TOTAL
+    tot_dp=grand_s0['p']-grand_b0['p']; tot_dco=grand_s0['co']-grand_b0['co']
+    tot_row=[('TOTAL',),
+             (grand_b0['v'],None,False),(grand_b0['c'],'#,##0',False),
+             (grand_b0['p'],None,False),(grand_b0['co'],'"$"#,##0',False),
+             (grand_s0['v'],None,False),(grand_s0['c'],'#,##0',False),
+             (grand_s0['p'],None,False),(grand_s0['co'],'"$"#,##0',False),
+             (('+' if tot_dp>0 else '')+str(tot_dp) if tot_dp!=0 else '-', None, True),
+             (tot_dco if tot_dco!=0 else '-', '"$"#,##0' if tot_dco!=0 else '@', True)]
+    dco_tot_col = '1B5E20' if tot_dco<0 else ('C62828' if tot_dco>0 else '000000')
+    dp_tot_col  = 'C62828' if tot_dp<0 else ('1B5E20' if tot_dp>0 else '000000')
+    for ci0, item in enumerate(tot_row, 1):
+        val0=item[0]; fmt0=item[1] if len(item)>1 else None; bld=item[2] if len(item)>2 else False
+        col0='000000'
+        if ci0==10: col0=dp_tot_col
+        if ci0==11: col0=dco_tot_col
+        c0=ws.cell(row, ci0)
+        cell_fmt(c0, val0, bold=True, bg='E0E0E0', size=9, num_fmt=fmt0 or '', color=col0)
+    border_all(ws, row, row, 1, NCOLS)
+    ws.row_dimensions[row].height = 16
+    row += 2
+
+    # ══════════════════════════════════════════════════════════════
     # SECCIÓN 1: Tabla comparativa Banafrut vs Sugerido por finca
     # ══════════════════════════════════════════════════════════════
     all_farms = sorted({f for day in orders_orig.values() for f in day.keys()})
@@ -1065,7 +1169,7 @@ def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
         unavail    = unavailable_vehicle_ids_by_day.get(dia, set())
         orig_trips = [t for t in
                       optimize_day(orders_orig.get(dia, {}),
-                                   unavailable_vehicle_ids=unavail)
+                                   unavailable_vehicle_ids=unavail, relaxed=True)
                       if t.get('trip_type') == 'export']
         sug_ord    = adjusted_orders.get(dia, {})
         sug_trips  = ([t for t in
