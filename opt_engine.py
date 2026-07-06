@@ -1182,6 +1182,20 @@ def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
                        if t.get('trip_type') == 'export']
                       if sug_ord else [])
 
+        # ── Comparar si el despacho del día es idéntico ────────────────────
+        orig_p_d = int(sum(t.get('pallets_cargados', 0) for t in orig_trips))
+        orig_c_d = int(sum(sum(f.get('cajas', 0) for f in t['farms'].values()) for t in orig_trips))
+        sug_p_d  = int(sum(t.get('pallets_cargados', 0) for t in sug_trips))
+        sug_c_d  = int(sum(sum(f.get('cajas', 0) for f in t['farms'].values()) for t in sug_trips))
+        identical_d = (orig_p_d == sug_p_d and orig_c_d == sug_c_d)
+
+        sections_to_show = (
+            [('DESPACHO DEL DÍA — Banafrut = Sugerido', sug_trips, SB_HDR, SUG_BG)]
+            if identical_d else
+            [('ORIGINAL — Banafrut', orig_trips, ORIG_HDR, BANA_BG),
+             ('SUGERIDO',            sug_trips,  SB_HDR,   SUG_BG)]
+        )
+
         # Encabezado del día
         ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=NCOLS)
         cell_fmt(ws.cell(row, 1),
@@ -1191,10 +1205,9 @@ def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
         ws.row_dimensions[row].height = 18
         row += 1
 
-        for label, trips_list, hdr_bg, row_bg in [
-            ('ORIGINAL — Banafrut', orig_trips, ORIG_HDR, BANA_BG),
-            ('SUGERIDO',            sug_trips,  SB_HDR,   SUG_BG),
-        ]:
+        day_total_p = 0; day_total_c = 0; day_total_co = 0; day_total_v = 0
+
+        for label, trips_list, hdr_bg, row_bg in sections_to_show:
             # Sub-cabecera
             ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=NCOLS)
             cell_fmt(ws.cell(row, 1), label,
@@ -1241,9 +1254,26 @@ def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
                              num_fmt='"$"#,##0', size=8, bg=bg2)
                     border_all(ws, row, row, 1, NCOLS)
                     ws.row_dimensions[row].height = 18
+                    day_total_p  += pallets
+                    day_total_c  += sum(f.get('cajas', 0) for f in t.get('farms', {}).values())
+                    day_total_co += costo
+                    day_total_v  += 1
                     row += 1
 
-        row += 1   # espacio entre días
+        # ── Fila TOTAL del día ────────────────────────────────────────────
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=9)
+        cell_fmt(ws.cell(row, 1),
+                 'TOTAL {} — {} viajes  ·  {:,} cajas'.format(
+                     dia.upper(), day_total_v, day_total_c),
+                 bold=True, bg='37474F', color='FFFFFF', size=9)
+        cell_fmt(ws.cell(row, 10), day_total_p,
+                 bold=True, bg='37474F', color='FFFFFF', size=9)
+        cell_fmt(ws.cell(row, 11), day_total_co,
+                 bold=True, bg='37474F', color='FFFFFF', size=9,
+                 num_fmt='"$"#,##0')
+        border_all(ws, row, row, 1, NCOLS)
+        ws.row_dimensions[row].height = 16
+        row += 2   # espacio entre días
 
     row += 1
 
@@ -1506,50 +1536,63 @@ def write_day_sheet(wb, day, orig_trips, sug_trips, first_sheet, banafrut_orders
 
     row = 2
 
-    # ── Sección 1: PEDIDO BANAFRUT ────────────────────────────
-    b_ordered_p = int(sum(d.get('pallets', 0) for d in (banafrut_orders or {}).values()))
-    b_ordered_c = int(sum(d.get('cajas', 0)   for d in (banafrut_orders or {}).values()))
-    b_orig_exp  = [t for t in orig_trips if t.get('trip_type') == 'export']
-    b_shipped_p = int(sum(t.get('pallets_cargados', 0) for t in b_orig_exp))
-    b_shipped_c = int(sum(sum(f.get('cajas', 0) for f in t['farms'].values()) for t in b_orig_exp))
-    b_unshipped = max(0, b_ordered_p - b_shipped_p)
-    if b_unshipped > 0:
-        _b_title = 'PEDIDO BANAFRUT — Sin modificaciones  ({} ordenados | {} enviados | ⚠️ {}P sin despachar)'.format(
-            '{}P · {:,}c'.format(b_ordered_p, b_ordered_c),
-            '{}P · {:,}c'.format(b_shipped_p, b_shipped_c),
-            b_unshipped)
-    else:
-        _b_title = 'PEDIDO BANAFRUT — Sin modificaciones  ({}P  ·  {:,} cajas  ·  ${:,})'.format(
-            b_shipped_p, b_shipped_c,
-            int(sum(t.get('costo', 0) for t in b_orig_exp)))
-    row, b_cajas, b_pallets, b_costo, b_viajes = _write_trip_section(
-        ws, row, orig_trips, ORIG_C, _b_title, NCOLS)
-    row += 1  # espacio
+    # ── Comparar orig vs sug para decidir si mostrar uno o dos cuadros ────────
+    orig_exp_cmp = [t for t in orig_trips if t.get('trip_type') == 'export']
+    orig_p_cmp   = int(sum(t.get('pallets_cargados', 0) for t in orig_exp_cmp))
+    orig_c_cmp   = int(sum(sum(f.get('cajas', 0) for f in t['farms'].values()) for t in orig_exp_cmp))
+    identical    = (orig_p_cmp == int(sug_p) and orig_c_cmp == int(sug_c))
 
-    # ── Sección 2: NUESTRA SUGERENCIA ─────────────────────────
-    _moves = inter_day_moves or {}
-    _defer_out = sum(m.get('pallets', 0) for m in _moves.get(day, []) if m.get('type') == 'deferral')
-    _defer_in  = sum(m.get('pallets', 0) for m in _moves.get(day, []) if m.get('type') == 'anticipation')
-    # Also check other days for deferrals TO this day
-    _moved_to  = sum(
-        m.get('pallets', 0)
-        for d2, mvs in _moves.items()
-        for m in mvs
-        if m.get('type') == 'deferral' and m.get('to_day') == day
-    )
-    if _defer_out or _moved_to:
-        _extra = []
-        if _defer_out:
-            _extra.append('↓ {}P diferidos al día siguiente'.format(_defer_out))
-        if _moved_to:
-            _extra.append('↑ {}P recibidos del día anterior'.format(_moved_to))
-        _s_title = 'NUESTRA SUGERENCIA — Optimizado  ({}P  ·  {:,} cajas)  {}'.format(
-            int(sug_p), int(sug_c), '  |  '.join(_extra))
-    else:
-        _s_title = 'NUESTRA SUGERENCIA — Optimizado  ({}P  ·  {:,} cajas  ·  ${:,})'.format(
+    if identical:
+        # ── Despacho idéntico: una sola tabla ────────────────────
+        _title = 'DESPACHO DEL DÍA — Banafrut = Sugerido  ({}P  ·  {:,} cajas  ·  ${:,})'.format(
             int(sug_p), int(sug_c), int(sug_co))
-    row, s_cajas, s_pallets, s_costo, s_viajes = _write_trip_section(
-        ws, row, sug_trips, SUG_C, _s_title, NCOLS)
+        row, s_cajas, s_pallets, s_costo, s_viajes = _write_trip_section(
+            ws, row, sug_trips, SUG_C, _title, NCOLS)
+    else:
+        # ── Sección 1: PEDIDO BANAFRUT ────────────────────────────
+        b_ordered_p = int(sum(d.get('pallets', 0) for d in (banafrut_orders or {}).values()))
+        b_ordered_c = int(sum(d.get('cajas', 0)   for d in (banafrut_orders or {}).values()))
+        b_orig_exp  = [t for t in orig_trips if t.get('trip_type') == 'export']
+        b_shipped_p = int(sum(t.get('pallets_cargados', 0) for t in b_orig_exp))
+        b_shipped_c = int(sum(sum(f.get('cajas', 0) for f in t['farms'].values()) for t in b_orig_exp))
+        b_unshipped = max(0, b_ordered_p - b_shipped_p)
+        if b_unshipped > 0:
+            _b_title = 'PEDIDO BANAFRUT — Sin modificaciones  ({} ordenados | {} enviados | ⚠️ {}P sin despachar)'.format(
+                '{}P · {:,}c'.format(b_ordered_p, b_ordered_c),
+                '{}P · {:,}c'.format(b_shipped_p, b_shipped_c),
+                b_unshipped)
+        else:
+            _b_title = 'PEDIDO BANAFRUT — Sin modificaciones  ({}P  ·  {:,} cajas  ·  ${:,})'.format(
+                b_shipped_p, b_shipped_c,
+                int(sum(t.get('costo', 0) for t in b_orig_exp)))
+        row, b_cajas, b_pallets, b_costo, b_viajes = _write_trip_section(
+            ws, row, orig_trips, ORIG_C, _b_title, NCOLS)
+        row += 1  # espacio
+
+        # ── Sección 2: NUESTRA SUGERENCIA ─────────────────────────
+        _moves = inter_day_moves or {}
+        _defer_out = sum(m.get('pallets', 0) for m in _moves.get(day, []) if m.get('type') == 'deferral')
+        _defer_in  = sum(m.get('pallets', 0) for m in _moves.get(day, []) if m.get('type') == 'anticipation')
+        # Also check other days for deferrals TO this day
+        _moved_to  = sum(
+            m.get('pallets', 0)
+            for d2, mvs in _moves.items()
+            for m in mvs
+            if m.get('type') == 'deferral' and m.get('to_day') == day
+        )
+        if _defer_out or _moved_to:
+            _extra = []
+            if _defer_out:
+                _extra.append('↓ {}P diferidos al día siguiente'.format(_defer_out))
+            if _moved_to:
+                _extra.append('↑ {}P recibidos del día anterior'.format(_moved_to))
+            _s_title = 'NUESTRA SUGERENCIA — Optimizado  ({}P  ·  {:,} cajas)  {}'.format(
+                int(sug_p), int(sug_c), '  |  '.join(_extra))
+        else:
+            _s_title = 'NUESTRA SUGERENCIA — Optimizado  ({}P  ·  {:,} cajas  ·  ${:,})'.format(
+                int(sug_p), int(sug_c), int(sug_co))
+        row, s_cajas, s_pallets, s_costo, s_viajes = _write_trip_section(
+            ws, row, sug_trips, SUG_C, _s_title, NCOLS)
 
     ws.freeze_panes = 'A3'
     return s_costo, s_cajas, s_pallets, s_viajes
