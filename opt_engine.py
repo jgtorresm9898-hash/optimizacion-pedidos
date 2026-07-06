@@ -654,7 +654,7 @@ def optimize_day(day_orders, unavailable_vehicle_ids=None, relaxed=False):
     mediodia_vids = {t['vehicle_id'] for t in mediodia_trips}
     # Viaje1 de conductores con 2 slots (Demetrio/Edwin): si no salió en mediodía,
     # bloquearlo también en tarde — un conductor no puede hacer 2 viajes de tarde.
-    VIAJE1_VIDS = {'DEMETRIO_PATINETA_1', 'EDWIN_MULA_1'}
+    VIAJE1_VIDS = {'DEMETRIO_PATINETA', 'EDWIN_MULA'}
     unused_viaje1 = VIAJE1_VIDS - mediodia_vids - unavailable_vehicle_ids
     tarde_orders  = _compute_tarde_demand(day_orders, mediodia_trips)
     tarde_trips   = _optimize_phase(
