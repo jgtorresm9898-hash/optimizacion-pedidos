@@ -923,23 +923,23 @@ def compute_inter_day_moves(orders):
 
 def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
                                  semana_num, unavailable_vehicle_ids_by_day=None):
-    """Escribe la hoja 'PEDIDO SUGERIDO' al workbook."""
+    """Hoja PEDIDO SUGERIDO: tabla comparativa + distribución de viajes por día."""
     if unavailable_vehicle_ids_by_day is None:
         unavailable_vehicle_ids_by_day = {}
 
-    ws = wb.create_sheet('PEDIDO SUGERIDO')
+    ws   = wb.create_sheet('PEDIDO SUGERIDO')
     dias = [d for d in DAY_ORDER if d in orders_orig]
 
-    # Paleta de colores
-    HDR_BG   = '1B5E20'   # verde oscuro cabecera principal
-    HDR2_BG  = '2E7D32'   # verde medio sub-cabecera
-    BANA_BG  = 'E8F5E9'   # verde muy claro — columna Banafrut
-    SUG_BG   = 'FFFFFF'   # blanco — columna Sugerido
-    MOV_IN   = 'C8E6C9'   # verde claro — pallets que llegan
-    MOV_OUT  = 'FFF9C4'   # amarillo claro — pallets que salen
-    TOTAL_BG = 'F1F8E9'   # fondo fila total
-    MOVE_HDR = 'E65100'   # naranja — cabecera movimientos
-    SAVE_HDR = '01579B'   # azul — cabecera costos
+    HDR_BG   = '1B5E20'
+    HDR2_BG  = '2E7D32'
+    BANA_BG  = 'E3F2FD'   # azul claro — original
+    SUG_BG   = 'E8F5E9'   # verde claro — sugerido
+    TOTAL_BG = 'F1F8E9'
+    MOVE_HDR = 'E65100'
+    SAVE_HDR = '01579B'
+    ORIG_HDR = '1565C0'
+    SB_HDR   = '2E7D32'
+    alt      = ['FFFFFF', 'F8F9FA']
 
     def cell_fmt(c, value=None, bold=False, bg=None, color='000000',
                  halign='center', size=9, num_fmt=None, italic=False):
@@ -954,100 +954,193 @@ def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
         if num_fmt:
             c.number_format = num_fmt
 
-    thin  = Side(style='thin',   color='CCCCCC')
-    med   = Side(style='medium', color='999999')
+    def fmt_farms(trip):
+        farms = trip.get('farms', {})
+        return '  ·  '.join(
+            '{}: {}P'.format(fn.title(), fd['pallets'])
+            for fn, fd in farms.items()
+        )
 
-    # ── Fila 1: título ─────────────────────────────────────────
-    ncols = 1 + len(dias) * 2
-    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncols)
-    cell_fmt(ws.cell(1, 1), f'PEDIDO SUGERIDO — SEMANA {semana_num}',
-             bold=True, bg=HDR_BG, color='FFFFFF', size=12)
-    ws.row_dimensions[1].height = 26
-
-    # ── Fila 2: subtítulo ──────────────────────────────────────
-    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=ncols)
-    cell_fmt(ws.cell(2, 1),
-             'Banafrut = pedido original recibido  |  Sugerido = pedido después de consolidaciones entre días',
-             bg='F9FBE7', color='33691E', italic=True, size=9)
-    ws.row_dimensions[2].height = 16
-
-    # ── Filas 3-4: cabeceras de días ───────────────────────────
-    ws.cell(3, 1).value = ''
-    ws.cell(4, 1).value = 'FINCA'
-    cell_fmt(ws.cell(4, 1), 'FINCA', bold=True, bg=HDR2_BG,
-             color='FFFFFF', size=9)
+    # Fixed column layout (11 cols, A=1..K=11)
+    # A: Farm name / Conductor label
+    # B-I: farm distribution (merged for trips) / day values for table
+    # J: pallets / total
+    # K: costo
+    NCOLS = 11
     ws.column_dimensions['A'].width = 22
+    for ci in range(2, 10):   # B-I
+        ws.column_dimensions[get_column_letter(ci)].width = 9
+    ws.column_dimensions['J'].width = 9
+    ws.column_dimensions['K'].width = 14
 
-    col = 2
-    day_col_map = {}   # dia -> (col_bana, col_sug)
-    for dia in dias:
-        ws.merge_cells(start_row=3, start_column=col,
-                       end_row=3, end_column=col + 1)
-        cell_fmt(ws.cell(3, col), dia, bold=True, bg=HDR_BG,
+    # ── ROW 1: Título ──────────────────────────────────────────────
+    row = 1
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=NCOLS)
+    cell_fmt(ws.cell(row, 1),
+             'PEDIDO SUGERIDO — SEMANA {}'.format(semana_num),
+             bold=True, bg=HDR_BG, color='FFFFFF', size=12)
+    ws.row_dimensions[row].height = 26
+    row += 1
+
+    # ── ROW 2: Subtítulo ───────────────────────────────────────────
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=NCOLS)
+    cell_fmt(ws.cell(row, 1),
+             'Banafrut = pedido original recibido  |  Sugerido = pedido optimizado sugerido',
+             bg='F9FBE7', color='33691E', italic=True, size=9)
+    ws.row_dimensions[row].height = 15
+    row += 1
+
+    # ══════════════════════════════════════════════════════════════
+    # SECCIÓN 1: Tabla comparativa Banafrut vs Sugerido por finca
+    # ══════════════════════════════════════════════════════════════
+    all_farms = sorted({f for day in orders_orig.values() for f in day.keys()})
+
+    # Cabeceras de días  (cols 2..1+len(dias)*2, 2 cols por día)
+    ws.cell(row, 1).value = ''
+    for ci, dia in enumerate(dias):
+        col = 2 + ci * 2
+        ws.merge_cells(start_row=row, start_column=col,
+                       end_row=row, end_column=col + 1)
+        cell_fmt(ws.cell(row, col), dia.title(),
+                 bold=True, bg=DAY_COLORS.get(dia, HDR_BG),
                  color='FFFFFF', size=9)
-        ws.row_dimensions[3].height = 18
+    ws.row_dimensions[row].height = 16
+    row += 1
 
-        cell_fmt(ws.cell(4, col),   'Banafrut', bold=True, bg=HDR2_BG,
-                 color='FFFFFF', size=8)
-        cell_fmt(ws.cell(4, col+1), 'Sugerido', bold=True, bg=HDR2_BG,
-                 color='FFFFFF', size=8)
-        ws.column_dimensions[get_column_letter(col)].width   = 10
-        ws.column_dimensions[get_column_letter(col+1)].width = 10
-        day_col_map[dia] = (col, col + 1)
-        col += 2
-    ws.row_dimensions[4].height = 16
+    # Sub-cabeceras FINCA / Banafrut / Sugerido
+    cell_fmt(ws.cell(row, 1), 'FINCA', bold=True, bg=HDR2_BG, color='FFFFFF', size=9)
+    for ci, dia in enumerate(dias):
+        col = 2 + ci * 2
+        cell_fmt(ws.cell(row, col),   'Banafrut', bold=True, bg=ORIG_HDR, color='FFFFFF', size=8)
+        cell_fmt(ws.cell(row, col+1), 'Sugerido', bold=True, bg=SB_HDR,   color='FFFFFF', size=8)
+    border_all(ws, row, row, 1, 1 + len(dias)*2)
+    ws.row_dimensions[row].height = 14
+    row += 1
 
-    # Identificar celdas con movimientos (farm, dia) -> tipo
-    move_tags = {}
-    for m in moves:
-        move_tags[(m['farm'], m['from_day'])] = 'out'
-        move_tags[(m['farm'], m['to_day'])]   = 'in'
-
-    # ── Filas de fincas ────────────────────────────────────────
-    all_farms = sorted({f for d in orders_orig.values() for f in d},
-                       key=lambda f: f)
-    row = 5
-    for farm in all_farms:
-        ws.cell(row, 1).value = farm.title()
-        ws.cell(row, 1).font  = Font(name='Arial', size=9)
-        ws.cell(row, 1).alignment = Alignment(horizontal='left',
-                                               vertical='center')
-        for dia in dias:
-            cb, cs = day_col_map[dia]
-            orig_p = sum(d['pallets'] for d in
-                         orders_orig.get(dia, {}).get(farm, {}).values())
-            sug_p  = sum(d['pallets'] for d in
-                         adjusted_orders.get(dia, {}).get(farm, {}).values())
-            tag    = move_tags.get((farm, dia))
-
-            bana_bg = BANA_BG
-            sug_bg  = MOV_IN  if tag == 'in'  else \
-                      MOV_OUT if tag == 'out' else SUG_BG
-
-            cell_fmt(ws.cell(row, cb), orig_p if orig_p else '',
-                     bg=bana_bg, size=9)
-            sug_val = sug_p if sug_p else ''
-            cell_fmt(ws.cell(row, cs), sug_val, bg=sug_bg, size=9,
-                     bold=(tag is not None))
-        ws.row_dimensions[row].height = 15
+    grand_orig = {d: 0 for d in dias}
+    grand_sug  = {d: 0 for d in dias}
+    for fi, farm in enumerate(all_farms):
+        bg = alt[fi % 2]
+        cell_fmt(ws.cell(row, 1), farm.title(), halign='left', size=9, bg=bg)
+        for ci, dia in enumerate(dias):
+            col  = 2 + ci * 2
+            op   = orders_orig.get(dia, {}).get(farm, {})
+            sp   = adjusted_orders.get(dia, {}).get(farm, {})
+            ov   = sum(d['pallets'] for d in op.values()) if op else None
+            sv   = sum(d['pallets'] for d in sp.values()) if sp else None
+            diff_bg = 'FFF9C4' if sv != ov else bg
+            cell_fmt(ws.cell(row, col),   ov if ov else '', size=9, bg=bg)
+            cell_fmt(ws.cell(row, col+1), sv if sv else '', size=9, bg=diff_bg)
+            if ov: grand_orig[dia] += ov
+            if sv: grand_sug[dia]  += sv
+        border_all(ws, row, row, 1, 1 + len(dias)*2)
+        ws.row_dimensions[row].height = 14
         row += 1
 
-    # ── Fila Total ─────────────────────────────────────────────
-    cell_fmt(ws.cell(row, 1), 'TOTAL', bold=True, bg=TOTAL_BG, size=9,
-             halign='left')
-    for dia in dias:
-        cb, cs = day_col_map[dia]
-        orig_t = sum(sum(d['pallets'] for d in ports.values())
-                     for ports in orders_orig.get(dia, {}).values())
-        sug_t  = sum(sum(d['pallets'] for d in ports.values())
-                     for ports in adjusted_orders.get(dia, {}).values())
-        cell_fmt(ws.cell(row, cb), orig_t, bold=True, bg=TOTAL_BG, size=9)
-        cell_fmt(ws.cell(row, cs), sug_t,  bold=True, bg=TOTAL_BG, size=9)
+    # Fila TOTAL
+    cell_fmt(ws.cell(row, 1), 'TOTAL', bold=True, bg=TOTAL_BG, size=9)
+    for ci, dia in enumerate(dias):
+        col = 2 + ci * 2
+        cell_fmt(ws.cell(row, col),   grand_orig[dia], bold=True, bg=TOTAL_BG, size=9)
+        cell_fmt(ws.cell(row, col+1), grand_sug[dia],  bold=True, bg=TOTAL_BG, size=9)
+    border_all(ws, row, row, 1, 1 + len(dias)*2)
     ws.row_dimensions[row].height = 16
-    border_all(ws, 3, row, 1, ncols)
     row += 2
 
-    # ── Sección: Movimientos propuestos ────────────────────────
+    # ══════════════════════════════════════════════════════════════
+    # SECCIÓN 2: Distribución de viajes por día (Original vs Sugerido)
+    # ══════════════════════════════════════════════════════════════
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=NCOLS)
+    cell_fmt(ws.cell(row, 1), 'DISTRIBUCIÓN DE VIAJES POR DÍA',
+             bold=True, bg='263238', color='FFFFFF', size=10)
+    ws.row_dimensions[row].height = 20
+    row += 1
+
+    # Cabeceras de la tabla de viajes
+    trip_hdrs = ['Conductor', 'Hora', 'Distribución por finca (pallets por camión)',
+                 '', '', '', '', '', 'Total P', 'Costo']
+    # Cols: A=Conductor  B=Hora  C-I=farm distr(merged)  J=pallets  K=costo
+
+    for dia in dias:
+        unavail    = unavailable_vehicle_ids_by_day.get(dia, set())
+        orig_trips = [t for t in
+                      optimize_day(orders_orig.get(dia, {}),
+                                   unavailable_vehicle_ids=unavail)
+                      if t.get('trip_type') == 'export']
+        sug_ord    = adjusted_orders.get(dia, {})
+        sug_trips  = ([t for t in
+                       optimize_day(sug_ord, unavailable_vehicle_ids=unavail)
+                       if t.get('trip_type') == 'export']
+                      if sug_ord else [])
+
+        # Encabezado del día
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=NCOLS)
+        cell_fmt(ws.cell(row, 1),
+                 '{} {}'.format(DAY_EMOJIS.get(dia, ''), dia.title()),
+                 bold=True, bg=DAY_COLORS.get(dia, HDR_BG), color='FFFFFF',
+                 size=10)
+        ws.row_dimensions[row].height = 18
+        row += 1
+
+        for label, trips_list, hdr_bg, row_bg in [
+            ('ORIGINAL — Banafrut', orig_trips, ORIG_HDR, BANA_BG),
+            ('SUGERIDO',            sug_trips,  SB_HDR,   SUG_BG),
+        ]:
+            # Sub-cabecera
+            ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=NCOLS)
+            cell_fmt(ws.cell(row, 1), label,
+                     bold=True, bg=hdr_bg, color='FFFFFF', size=9)
+            ws.row_dimensions[row].height = 15
+            row += 1
+
+            # Cabeceras de columnas
+            cell_fmt(ws.cell(row, 1), 'Conductor',     bold=True, bg='ECEFF1', size=8)
+            cell_fmt(ws.cell(row, 2), 'Hora',          bold=True, bg='ECEFF1', size=8)
+            ws.merge_cells(start_row=row, start_column=3,
+                           end_row=row, end_column=9)
+            cell_fmt(ws.cell(row, 3), 'Distribución de pallets por finca',
+                     bold=True, bg='ECEFF1', size=8, halign='left')
+            cell_fmt(ws.cell(row, 10), 'Total P',      bold=True, bg='ECEFF1', size=8)
+            cell_fmt(ws.cell(row, 11), 'Costo',        bold=True, bg='ECEFF1', size=8)
+            border_all(ws, row, row, 1, NCOLS)
+            ws.row_dimensions[row].height = 14
+            row += 1
+
+            if not trips_list:
+                ws.merge_cells(start_row=row, start_column=1,
+                               end_row=row, end_column=NCOLS)
+                cell_fmt(ws.cell(row, 1), 'Sin viajes este día.',
+                         italic=True, color='888888', size=8, halign='left')
+                ws.row_dimensions[row].height = 14
+                row += 1
+            else:
+                for ti, t in enumerate(trips_list):
+                    bg2 = alt[ti % 2]
+                    cond  = t.get('conductor', '')
+                    hora  = t.get('hora', '')
+                    fstr  = fmt_farms(t)
+                    pallets = t.get('pallets_cargados', 0)
+                    costo   = t.get('costo', 0)
+                    cell_fmt(ws.cell(row, 1), cond,    halign='left', size=8, bg=bg2)
+                    cell_fmt(ws.cell(row, 2), hora,    size=8, bg=bg2)
+                    ws.merge_cells(start_row=row, start_column=3,
+                                   end_row=row, end_column=9)
+                    cell_fmt(ws.cell(row, 3), fstr,
+                             halign='left', size=8, bg=bg2)
+                    cell_fmt(ws.cell(row, 10), pallets, size=8, bg=bg2)
+                    cell_fmt(ws.cell(row, 11), costo,
+                             num_fmt='"$"#,##0', size=8, bg=bg2)
+                    border_all(ws, row, row, 1, NCOLS)
+                    ws.row_dimensions[row].height = 18
+                    row += 1
+
+        row += 1   # espacio entre días
+
+    row += 1
+
+    # ══════════════════════════════════════════════════════════════
+    # SECCIÓN 3: Movimientos propuestos
+    # ══════════════════════════════════════════════════════════════
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
     cell_fmt(ws.cell(row, 1), 'MOVIMIENTOS PROPUESTOS',
              bold=True, bg=MOVE_HDR, color='FFFFFF', size=10)
@@ -1055,39 +1148,37 @@ def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
     row += 1
 
     if not moves:
-        ws.merge_cells(start_row=row, start_column=1,
-                       end_row=row, end_column=6)
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
         cell_fmt(ws.cell(row, 1),
                  'Sin movimientos sugeridos — semana optimizada sin consolidaciones.',
-                 italic=True, size=9, color='666666')
-        ws.row_dimensions[row].height = 14
+                 size=9, color='555555', halign='left')
+        ws.row_dimensions[row].height = 15
         row += 1
     else:
-        move_hdrs = ['Tipo', 'Finca', 'Día origen', 'Día destino',
-                     'Pallets', 'Motivo']
+        move_hdrs = ['Tipo', 'Finca', 'De', 'A', 'Pallets', 'Razón']
         for ci, h in enumerate(move_hdrs, 1):
-            cell_fmt(ws.cell(row, ci), h, bold=True,
-                     bg='FFE0B2', color='4E342E', size=9)
+            cell_fmt(ws.cell(row, ci), h, bold=True, bg='FFE0B2', color='BF360C', size=9)
         border_all(ws, row, row, 1, 6)
-        ws.row_dimensions[row].height = 16
+        ws.row_dimensions[row].height = 15
         row += 1
         for m in moves:
-            tipo_bg = MOV_OUT if m['type'] == 'diferimiento' else MOV_IN
-            cell_fmt(ws.cell(row, 1), m['type'].title(),
-                     bg=tipo_bg, size=9)
-
+            tipo_label = 'Diferimiento' if m['type'] == 'diferimiento' else 'Anticipación'
+            tipo_bg    = 'FFF3E0' if m['type'] == 'diferimiento' else 'E8F5E9'
+            cell_fmt(ws.cell(row, 1), tipo_label, bg=tipo_bg, size=9)
+            cell_fmt(ws.cell(row, 2), m['farm'].title(), halign='left', size=9)
             cell_fmt(ws.cell(row, 3), m['from_day'].title(), size=9)
             cell_fmt(ws.cell(row, 4), m['to_day'].title(),   size=9)
             cell_fmt(ws.cell(row, 5), m['pallets'],          size=9)
-            cell_fmt(ws.cell(row, 6), m['reason'],
-                     halign='left', size=9)
+            cell_fmt(ws.cell(row, 6), m['reason'], halign='left', size=9)
             ws.column_dimensions['F'].width = 50
             border_all(ws, row, row, 1, 6)
             ws.row_dimensions[row].height = 15
             row += 1
     row += 1
 
-    # Impacto en costos
+    # ══════════════════════════════════════════════════════════════
+    # SECCIÓN 4: Impacto en costo
+    # ══════════════════════════════════════════════════════════════
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=5)
     cell_fmt(ws.cell(row, 1), 'IMPACTO EN COSTO',
              bold=True, bg=SAVE_HDR, color='FFFFFF', size=10)
@@ -1118,20 +1209,20 @@ def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
         diff_col  = 'A32D2D' if diff > 0 else ('3B6D11' if diff < 0 else '444444')
         diff_str  = ('+${:,}'.format(diff) if diff > 0
                      else ('-${:,}'.format(abs(diff)) if diff < 0 else '---'))
-        cell_fmt(ws.cell(row, 1), dia.title(),  halign='left', size=9)
-        cell_fmt(ws.cell(row, 2), orig_cost,    num_fmt='"$"#,##0', size=9)
-        cell_fmt(ws.cell(row, 3), sug_cost,     num_fmt='"$"#,##0', size=9)
-        cell_fmt(ws.cell(row, 4), diff_str,     color=diff_col, bold=(diff != 0), size=9)
+        cell_fmt(ws.cell(row, 1), dia.title(), halign='left', size=9)
+        cell_fmt(ws.cell(row, 2), orig_cost,   num_fmt='"$"#,##0', size=9)
+        cell_fmt(ws.cell(row, 3), sug_cost,    num_fmt='"$"#,##0', size=9)
+        cell_fmt(ws.cell(row, 4), diff_str,    color=diff_col, bold=(diff != 0), size=9)
         border_all(ws, row, row, 1, 4)
         ws.row_dimensions[row].height = 15
         row += 1
         total_orig_cost += orig_cost
         total_sug_cost  += sug_cost
 
-    total_diff    = total_sug_cost - total_orig_cost
-    tdiff_str     = ('+${:,}'.format(total_diff) if total_diff > 0
-                     else ('-${:,}'.format(abs(total_diff)) if total_diff < 0 else '---'))
-    tdiff_col     = 'A32D2D' if total_diff > 0 else ('3B6D11' if total_diff < 0 else '444444')
+    total_diff = total_sug_cost - total_orig_cost
+    tdiff_str  = ('+${:,}'.format(total_diff) if total_diff > 0
+                  else ('-${:,}'.format(abs(total_diff)) if total_diff < 0 else '---'))
+    tdiff_col  = 'A32D2D' if total_diff > 0 else ('3B6D11' if total_diff < 0 else '444444')
     cell_fmt(ws.cell(row, 1), 'TOTAL SEMANA', bold=True, bg=TOTAL_BG, halign='left', size=9)
     cell_fmt(ws.cell(row, 2), total_orig_cost, bold=True, bg=TOTAL_BG, num_fmt='"$"#,##0', size=9)
     cell_fmt(ws.cell(row, 3), total_sug_cost,  bold=True, bg=TOTAL_BG, num_fmt='"$"#,##0', size=9)
