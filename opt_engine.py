@@ -937,7 +937,7 @@ def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
     if unavailable_vehicle_ids_by_day is None:
         unavailable_vehicle_ids_by_day = {}
 
-    ws   = wb.create_sheet('PEDIDO SUGERIDO')
+    ws   = wb.create_sheet('PLAN DE DESPACHO')
     dias = [d for d in DAY_ORDER if d in orders_orig]
 
     HDR_BG   = '1B5E20'
@@ -987,7 +987,7 @@ def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
     row = 1
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=NCOLS)
     cell_fmt(ws.cell(row, 1),
-             'PEDIDO SUGERIDO — SEMANA {}'.format(semana_num),
+             'PLAN DE DESPACHO — SEMANA {}'.format(semana_num),
              bold=True, bg=HDR_BG, color='FFFFFF', size=12)
     ws.row_dimensions[row].height = 26
     row += 1
@@ -995,7 +995,7 @@ def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
     # ── ROW 2: Subtítulo ───────────────────────────────────────────
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=NCOLS)
     cell_fmt(ws.cell(row, 1),
-             'Banafrut = pedido original recibido  |  Sugerido = pedido optimizado sugerido',
+             'SIN OPTIMIZAR = despacho tal como vino el pedido  |  OPTIMIZADO = plan propuesto por el equipo de logística',
              bg='F9FBE7', color='33691E', italic=True, size=9)
     ws.row_dimensions[row].height = 15
     row += 1
@@ -1004,7 +1004,7 @@ def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
     # SECCIÓN 0: RESUMEN COMPARATIVO — Banafrut vs Sugerido totales
     # ══════════════════════════════════════════════════════════════
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=NCOLS)
-    cell_fmt(ws.cell(row, 1), 'RESUMEN COMPARATIVO — BANAFRUT vs SUGERIDO',
+    cell_fmt(ws.cell(row, 1), 'RESUMEN COMPARATIVO — SIN OPTIMIZAR  vs  OPTIMIZADO',
              bold=True, bg='263238', color='FFFFFF', size=10)
     ws.row_dimensions[row].height = 20
     row += 1
@@ -1012,18 +1012,18 @@ def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
     # Fila de grupos
     cell_fmt(ws.cell(row, 1), 'DÍA', bold=True, bg=HDR2_BG, color='FFFFFF', size=9)
     ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=5)
-    cell_fmt(ws.cell(row, 2), 'PEDIDO BANAFRUT', bold=True, bg=ORIG_HDR, color='FFFFFF', size=9)
+    cell_fmt(ws.cell(row, 2), 'SIN OPTIMIZAR', bold=True, bg=ORIG_HDR, color='FFFFFF', size=9)
     ws.merge_cells(start_row=row, start_column=6, end_row=row, end_column=9)
-    cell_fmt(ws.cell(row, 6), 'NUESTRA SUGERENCIA', bold=True, bg=SB_HDR, color='FFFFFF', size=9)
+    cell_fmt(ws.cell(row, 6), 'OPTIMIZADO', bold=True, bg=SB_HDR, color='FFFFFF', size=9)
     ws.merge_cells(start_row=row, start_column=10, end_row=row, end_column=NCOLS)
-    cell_fmt(ws.cell(row, 10), 'DIFERENCIA (+/−)', bold=True, bg=MOVE_HDR, color='FFFFFF', size=9)
+    cell_fmt(ws.cell(row, 10), 'AHORRO', bold=True, bg=MOVE_HDR, color='FFFFFF', size=9)
     ws.row_dimensions[row].height = 16
     row += 1
 
     # Sub-cabeceras
     for ci, h in enumerate(['DÍA', 'Viajes', 'Cajas', 'Pallets', 'Costo',
                                  'Viajes', 'Cajas', 'Pallets', 'Costo',
-                                 'Pallets', 'Costo'], 1):
+                                 'Pallets', 'Ahorro $'], 1):
         cell_fmt(ws.cell(row, ci), h, bold=True, bg='ECEFF1', size=8)
     border_all(ws, row-1, row, 1, NCOLS)
     ws.row_dimensions[row].height = 14
@@ -1160,7 +1160,7 @@ def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
     # SECCIÓN 2: Distribución de viajes por día (Original vs Sugerido)
     # ══════════════════════════════════════════════════════════════
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=NCOLS)
-    cell_fmt(ws.cell(row, 1), 'DISTRIBUCIÓN DE VIAJES POR DÍA',
+    cell_fmt(ws.cell(row, 1), 'DETALLE DE VIAJES POR DÍA',
              bold=True, bg='263238', color='FFFFFF', size=10)
     ws.row_dimensions[row].height = 20
     row += 1
@@ -1192,8 +1192,8 @@ def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
         sections_to_show = (
             [('DESPACHO ÓPTIMO', sug_trips, SB_HDR, SUG_BG)]
             if not has_mod_d else
-            [('ORIGINAL — Banafrut', orig_trips, ORIG_HDR, BANA_BG),
-             ('SUGERIDO',            sug_trips,  SB_HDR,   SUG_BG)]
+            [('SIN OPTIMIZAR', orig_trips, ORIG_HDR, BANA_BG),
+             ('OPTIMIZADO',   sug_trips,  SB_HDR,   SUG_BG)]
         )
 
         # Encabezado del día
@@ -1319,12 +1319,12 @@ def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
     # SECCIÓN 4: Impacto en costo
     # ══════════════════════════════════════════════════════════════
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=5)
-    cell_fmt(ws.cell(row, 1), 'IMPACTO EN COSTO',
+    cell_fmt(ws.cell(row, 1), 'IMPACTO EN COSTO  (SIN OPTIMIZAR vs OPTIMIZADO)',
              bold=True, bg=SAVE_HDR, color='FFFFFF', size=10)
     ws.row_dimensions[row].height = 20
     row += 1
 
-    cost_hdrs = ['Dia', 'Costo original', 'Costo sugerido', 'Diferencia', '']
+    cost_hdrs = ['Día', 'Sin optimizar', 'Optimizado', 'Ahorro', '']
     for ci, h in enumerate(cost_hdrs, 1):
         cell_fmt(ws.cell(row, ci), h, bold=True, bg='BBDEFB', color='0D47A1', size=9)
     border_all(ws, row, row, 1, 4)
