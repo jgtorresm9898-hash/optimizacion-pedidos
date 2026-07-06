@@ -119,6 +119,12 @@ FARM_MEDIODIA_MAX = {
     'SALVAMENTO':            99,
 }
 
+# Restricciones conductor → fincas que NO puede visitar
+# Edwin: su Mula no cabe en las vías de San Bartolo ni Sta Maria Del Monte
+CONDUCTOR_FARM_RESTRICTIONS = {
+    'EDWIN': {'SAN BARTOLO', 'STA MARIA DEL MONTE'},
+}
+
 DAY_ORDER  = ['LUNES', 'MARTES', 'MIERCOLES', 'JUEVES', 'VIERNES', 'SABADO']
 DAY_EMOJIS = {'LUNES': '🟢', 'MARTES': '🔵', 'MIERCOLES': '🟡', 'JUEVES': '🟠', 'VIERNES': '🔴', 'SABADO': '⚪'}
 DAY_COLORS = {'LUNES': '1B5E20', 'MARTES': '0D47A1', 'MIERCOLES': 'F57F17', 'JUEVES': 'E65100', 'VIERNES': 'B71C1C', 'SABADO': '424242'}
@@ -318,6 +324,10 @@ def assign_farms_to_trips(farm_pallets, farm_cajas, trips):
         rem_pallets = int(fpallets)
         rem_cajas   = farm_cajas[farm]
         for trip in trips:
+            # Respetar restricciones conductor-finca (ej: Edwin no va a San Bartolo)
+            conductor = trip.get('conductor', '')
+            if farm in CONDUCTOR_FARM_RESTRICTIONS.get(conductor, set()):
+                continue
             if trip['remaining'] > 0 and rem_pallets > 0:
                 take = min(int(trip['remaining']), rem_pallets)
                 rem_pallets -= take
@@ -352,11 +362,6 @@ def _combined_fill(chigorodo_trips, apart_route_data):
         if spare <= 0:
             continue
 
-        # Fincas incompatibles por conductor en viaje combinado
-        # Edwin no puede hacer San Bartolo + Sta Maria Del Monte en el mismo viaje
-        _EDWIN_INCOMPAT = {'SAN BARTOLO', 'STA MARIA DEL MONTE'}
-        current_farms   = set(trip.get('farms', {}).keys())
-
         added_any = False
         for farm in sorted(apart_route_data, key=lambda f: -apart_route_data[f]['pallets']):
             if spare <= 0:
@@ -364,10 +369,9 @@ def _combined_fill(chigorodo_trips, apart_route_data):
             fdata = apart_route_data[farm]
             if fdata['pallets'] <= 0:
                 continue
-            # Restricción: Edwin no puede combinar San Bartolo y Sta Maria Del Monte
-            if conductor == 'EDWIN' and farm in _EDWIN_INCOMPAT:
-                if current_farms & _EDWIN_INCOMPAT:
-                    continue
+            # Restricción global: conductor no puede ir a ciertas fincas
+            if farm in CONDUCTOR_FARM_RESTRICTIONS.get(conductor, set()):
+                continue
             take_p = min(spare, fdata['pallets'])
             # Cajas proporcionales (exactas si es el ultimo trozo)
             if take_p == fdata['pallets']:
