@@ -726,7 +726,7 @@ def optimize_day(day_orders, unavailable_vehicle_ids=None, relaxed=False):
 
     # Filtro tarde: descartar viajes con menos de 5 pallets
     # (remanentes mínimos — se consolidan al día siguiente).
-    TARDE_MIN_PALLETS = 0 if relaxed else 3
+    TARDE_MIN_PALLETS = 0 if relaxed else 5
     tarde_trips = [t for t in tarde_trips
                    if t.get('trip_type') != 'export'
                    or t.get('pallets_cargados', 0) >= TARDE_MIN_PALLETS]
