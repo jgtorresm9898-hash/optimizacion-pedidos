@@ -120,9 +120,11 @@ FARM_MEDIODIA_MAX = {
 }
 
 # Restricciones conductor → fincas que NO puede visitar
-# Edwin: su Mula no cabe en las vías de San Bartolo ni Sta Maria Del Monte
+# Edwin: su Mula no cabe en San Bartolo
+# (SAN BARTOLO + STA MARIA en el mismo viaje queda automáticamente imposible
+#  porque Edwin nunca lleva San Bartolo — constraint original del usuario)
 CONDUCTOR_FARM_RESTRICTIONS = {
-    'EDWIN': {'SAN BARTOLO', 'STA MARIA DEL MONTE'},
+    'EDWIN': {'SAN BARTOLO'},
 }
 
 DAY_ORDER  = ['LUNES', 'MARTES', 'MIERCOLES', 'JUEVES', 'VIERNES', 'SABADO']
@@ -515,10 +517,48 @@ def _optimize_phase(phase_orders, unavailable_vehicle_ids=None, enable_combined_
                 t['farm_pallets_size']  = farm_psize
                 t['farm_total_pallets'] = farm_pallets
 
-        cost_a, trips_a = min_cost_assignment_bounded(total, vehicles)
-        trips_a = assign_farms_to_trips(farm_pallets, farm_cajas, trips_a)
-        recalculate_variable_costs(trips_a)
-        tag(trips_a, port, 'export')
+        # ── Separar fincas restringidas de libres ─────────────────
+        # Si hay fincas que ciertos conductores no pueden visitar (ej: Edwin → SB),
+        # optimizar primero esas fincas con vehículos elegibles, luego las demás.
+        restr_farms   = {f for f in farm_pallets
+                         if any(f in CONDUCTOR_FARM_RESTRICTIONS.get(v['conductor'], set())
+                                for v in vehicles)}
+        eligible_veh  = [v for v in vehicles
+                         if not any(f in CONDUCTOR_FARM_RESTRICTIONS.get(v['conductor'], set())
+                                    for f in restr_farms)]
+        ineligible_veh = [v for v in vehicles if v not in eligible_veh]
+
+        if restr_farms and ineligible_veh:
+            # Sub-optimización A: fincas restringidas → solo vehículos elegibles
+            rp = {f: farm_pallets[f] for f in restr_farms}
+            rc = {f: farm_cajas[f]   for f in restr_farms}
+            total_r = sum(rp.values())
+            cost_r, trips_r = min_cost_assignment_bounded(total_r, eligible_veh)
+            trips_r = assign_farms_to_trips(rp, rc, trips_r)
+            recalculate_variable_costs(trips_r)
+            tag(trips_r, port, 'export')
+            used_r = {t.get('vehicle_id', '') for t in trips_r}
+
+            # Sub-optimización B: fincas libres → vehículos restantes (incl. Edwin)
+            fp2 = {f: farm_pallets[f] for f in farm_pallets if f not in restr_farms}
+            fc2 = {f: farm_cajas[f]   for f in farm_pallets if f not in restr_farms}
+            veh2 = [v for v in vehicles if v.get('vehicle_id', '') not in used_r]
+            total_f = sum(fp2.values())
+            if total_f > 0 and veh2:
+                cost_f, trips_f = min_cost_assignment_bounded(total_f, veh2)
+                trips_f = assign_farms_to_trips(fp2, fc2, trips_f)
+                recalculate_variable_costs(trips_f)
+                tag(trips_f, port, 'export')
+            else:
+                trips_f = []
+
+            trips_a  = trips_r + trips_f
+            cost_a   = cost_r + sum(t['costo'] for t in trips_f)
+        else:
+            cost_a, trips_a = min_cost_assignment_bounded(total, vehicles)
+            trips_a = assign_farms_to_trips(farm_pallets, farm_cajas, trips_a)
+            recalculate_variable_costs(trips_a)
+            tag(trips_a, port, 'export')
 
         consol_candidates = [f for f in farm_pallets if f in CONSOLIDACION_ROUTES]
         if not consol_candidates:
@@ -686,7 +726,7 @@ def optimize_day(day_orders, unavailable_vehicle_ids=None, relaxed=False):
 
     # Filtro tarde: descartar viajes con menos de 5 pallets
     # (remanentes mínimos — se consolidan al día siguiente).
-    TARDE_MIN_PALLETS = 0 if relaxed else 5
+    TARDE_MIN_PALLETS = 0 if relaxed else 3
     tarde_trips = [t for t in tarde_trips
                    if t.get('trip_type') != 'export'
                    or t.get('pallets_cargados', 0) >= TARDE_MIN_PALLETS]
