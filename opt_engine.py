@@ -1306,8 +1306,10 @@ def _write_trip_section(ws, start_row, trips, color, title, NCOLS):
         pallet_parts = []
         for fn, fd in farms.items():
             psz = farm_psize.get(fn, {})
-            lbl = format_pallets_by_size(psz, farm_total_pals.get(fn, fd.get('pallets', 0)) or 1) \
-                  if psz else '{}P'.format(fd.get('pallets', 0))
+            assigned_p = int(fd.get('pallets', 0))
+            total_p    = int(farm_total_pals.get(fn, assigned_p) or assigned_p or 1)
+            lbl = pallet_size_label(assigned_p, total_p, psz) \
+                  if psz else '{}P'.format(assigned_p)
             pallet_parts.append('{}: {}'.format(fn.title(), lbl))
         pallets_str = '  |  '.join(pallet_parts)
 
