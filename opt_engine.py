@@ -1183,11 +1183,15 @@ def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
                       if sug_ord else [])
 
         # ── Comparar si el despacho del día es idéntico ────────────────────
-        orig_p_d = int(sum(t.get('pallets_cargados', 0) for t in orig_trips))
-        orig_c_d = int(sum(sum(f.get('cajas', 0) for f in t['farms'].values()) for t in orig_trips))
-        sug_p_d  = int(sum(t.get('pallets_cargados', 0) for t in sug_trips))
-        sug_c_d  = int(sum(sum(f.get('cajas', 0) for f in t['farms'].values()) for t in sug_trips))
-        identical_d = (orig_p_d == sug_p_d and orig_c_d == sug_c_d)
+        orig_p_d  = int(sum(t.get('pallets_cargados', 0) for t in orig_trips))
+        orig_c_d  = int(sum(sum(f.get('cajas', 0) for f in t['farms'].values()) for t in orig_trips))
+        orig_co_d = int(sum(t.get('costo', 0) for t in orig_trips))
+        sug_p_d   = int(sum(t.get('pallets_cargados', 0) for t in sug_trips))
+        sug_c_d   = int(sum(sum(f.get('cajas', 0) for f in t['farms'].values()) for t in sug_trips))
+        sug_co_d  = int(sum(t.get('costo', 0) for t in sug_trips))
+        # Idéntico = mismos pallets + cajas + costo + número de viajes
+        identical_d = (orig_p_d == sug_p_d and orig_c_d == sug_c_d
+                       and orig_co_d == sug_co_d and len(orig_trips) == len(sug_trips))
 
         sections_to_show = (
             [('DESPACHO DEL DÍA — Banafrut = Sugerido', sug_trips, SB_HDR, SUG_BG)]
@@ -1540,7 +1544,10 @@ def write_day_sheet(wb, day, orig_trips, sug_trips, first_sheet, banafrut_orders
     orig_exp_cmp = [t for t in orig_trips if t.get('trip_type') == 'export']
     orig_p_cmp   = int(sum(t.get('pallets_cargados', 0) for t in orig_exp_cmp))
     orig_c_cmp   = int(sum(sum(f.get('cajas', 0) for f in t['farms'].values()) for t in orig_exp_cmp))
-    identical    = (orig_p_cmp == int(sug_p) and orig_c_cmp == int(sug_c))
+    orig_co_cmp  = int(sum(t.get('costo', 0) for t in orig_exp_cmp))
+    # Idéntico = mismos pallets + cajas + costo + número de viajes
+    identical    = (orig_p_cmp == int(sug_p) and orig_c_cmp == int(sug_c)
+                    and orig_co_cmp == int(sug_co) and len(orig_exp_cmp) == len(sug_exp))
 
     if identical:
         # ── Despacho idéntico: una sola tabla ────────────────────
