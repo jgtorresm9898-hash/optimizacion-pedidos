@@ -1025,12 +1025,16 @@ def compute_inter_day_moves(orders):
 
 
 def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
-                                 semana_num, unavailable_vehicle_ids_by_day=None):
-    """Hoja PLAN DE DESPACHO: resumen ejecutivo."""
+                                 semana_num, unavailable_vehicle_ids_by_day=None,
+                                 sheet_name='PLAN DE DESPACHO',
+                                 sheet_title=None):
+    """Hoja PLAN DE DESPACHO o PLAN DESPACHO ORIGINAL: resumen ejecutivo."""
     if unavailable_vehicle_ids_by_day is None:
         unavailable_vehicle_ids_by_day = {}
 
-    ws   = wb.create_sheet('PLAN DE DESPACHO')
+    if sheet_title is None:
+        sheet_title = sheet_name
+    ws   = wb.create_sheet(sheet_name)
     dias = [d for d in DAY_ORDER if d in orders_orig]
 
     C_TITLE  = '1B5E20'
@@ -1073,7 +1077,7 @@ def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
 
     # ── Título ───────────────────────────────────────────────────────────────
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=NCOLS)
-    cf(ws.cell(row,1), 'PLAN DE DESPACHO — SEMANA {}'.format(semana_num),
+    cf(ws.cell(row,1), '{} — SEMANA {}'.format(sheet_title, semana_num),
        bold=True, bg=C_TITLE, color='FFFFFF', size=13)
     ws.row_dimensions[row].height = 28
     row += 2
@@ -1571,16 +1575,25 @@ def generate_excel_bytes(orders, semana_num, unavailable_vehicle_ids_by_day=None
         grand['pallets'] += sum(t['pallets_cargados'] for t in export_trips)
         grand['viajes']  += len(export_trips)
 
-    # PLAN DE DESPACHO va primero
+    # PLAN DE DESPACHO va primero (con ajustes inter-día)
     adjusted_orders_plan, inter_day_moves_plan = compute_inter_day_moves(orders)
     write_suggested_pedido_sheet(
         wb, orders, adjusted_orders_plan, inter_day_moves_plan,
         semana_num, unavailable_vehicle_ids_by_day,
+        sheet_name='PLAN DE DESPACHO',
     )
     # Eliminar la hoja vacía por defecto que crea openpyxl
     default_name = wb.sheetnames[0]
     if default_name != 'PLAN DE DESPACHO':
         del wb[default_name]
+
+    # PLAN DESPACHO ORIGINAL — sin mover pallets entre días (Plan B)
+    write_suggested_pedido_sheet(
+        wb, orders, orders, [],
+        semana_num, unavailable_vehicle_ids_by_day,
+        sheet_name='PLAN DESPACHO ORIGINAL',
+        sheet_title='PLAN DESPACHO ORIGINAL',
+    )
 
     # Build per-day movement index for write_day_sheet headers
     _raw_moves = inter_day_moves_plan
