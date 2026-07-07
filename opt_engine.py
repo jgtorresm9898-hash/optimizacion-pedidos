@@ -1511,9 +1511,19 @@ def write_day_sheet(wb, day, orig_trips, sug_trips, first_sheet, banafrut_orders
         )
         _extra = []
         if _defer_out:
-            _extra.append('↓ {}P diferidos al día siguiente'.format(_defer_out))
+            # Obtener nombre del día destino (puede ser anterior o siguiente)
+            _dest_days = list({m.get('to_day','').title()
+                               for m in _moves.get(day, []) if m.get('type') == 'deferral'})
+            _dest_str = ' / '.join(_dest_days) if _dest_days else 'otro día'
+            _extra.append('↓ {}P trasladados al {}'.format(_defer_out, _dest_str))
         if _moved_to:
-            _extra.append('↑ {}P recibidos del día anterior'.format(_moved_to))
+            # Obtener nombre del día origen
+            _orig_days = list({m.get('from_day','').title()
+                               for d2, mvs in _moves.items()
+                               for m in mvs
+                               if m.get('type') == 'deferral' and m.get('to_day') == day})
+            _orig_str = ' / '.join(_orig_days) if _orig_days else 'otro día'
+            _extra.append('↑ {}P recibidos del {}'.format(_moved_to, _orig_str))
         _move_str = '  |  '.join(_extra)
         _s_title = 'NUESTRA SUGERENCIA — Optimizado  ({}P  ·  {:,} cajas  ·  ${:,})  {}'.format(
             int(sug_p), int(sug_c), int(sug_co),
