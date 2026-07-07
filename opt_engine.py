@@ -120,11 +120,9 @@ FARM_MEDIODIA_MAX = {
 }
 
 # Restricciones conductor → fincas que NO puede visitar
-# Edwin: su Mula no cabe en San Bartolo
-# (SAN BARTOLO + STA MARIA en el mismo viaje queda automáticamente imposible
-#  porque Edwin nunca lleva San Bartolo — constraint original del usuario)
+# Edwin: su Mula no cabe en las vías de San Bartolo ni Sta Maria Del Monte
 CONDUCTOR_FARM_RESTRICTIONS = {
-    'EDWIN': {'SAN BARTOLO'},
+    'EDWIN': {'SAN BARTOLO', 'STA MARIA DEL MONTE'},
 }
 
 DAY_ORDER  = ['LUNES', 'MARTES', 'MIERCOLES', 'JUEVES', 'VIERNES', 'SABADO']
@@ -899,9 +897,11 @@ def apply_consolidation(orders, suggestion):
 def compute_inter_day_moves(orders):
     """
     Detecta y propone movimientos de pallets entre días consecutivos.
-    Regla 1 – DIFERIMIENTO: pallets no enviados el día D van al día D+1
+    Regla 1 – DIFERIMIENTO ADELANTE: pallets no enviados el día D van al día D+1
               si la finca tiene pedido en D+1.
-    Regla 2 – ANTICIPACIÓN: pallets del día D+1 muy pocos (< 5P) se
+    Regla 2 – DIFERIMIENTO ATRÁS: pallets no enviados en el último día posible
+              (sin día siguiente con esa finca) se anticipan al día D-1.
+    Regla 3 – ANTICIPACIÓN: pallets del día D+1 muy pocos (< 5P) se
               adelantan al día D si la finca tiene pedido en D.
     Retorna (adjusted_orders, moves_list).
     """
@@ -952,6 +952,46 @@ def compute_inter_day_moves(orders):
                               'from_day': dia, 'to_day': next_dia,
                               'pallets': diff, 'cajas': extra_cajas,
                               'reason': f'Sin enviar el {dia.title()} — pocas unidades sin viaje disponible'})
+
+    # Paso 1b: Diferimiento ATRÁS — si el último día no puede despachar algo
+    # y no hay día siguiente con esa finca, moverlo al día anterior
+    last_dia = dias[-1]
+    last_orders = orders.get(last_dia, {})
+    if last_orders:
+        trips_last = optimize_day(last_orders)
+        shipped_last = {}
+        for t in trips_last:
+            if t.get('trip_type') != 'export': continue
+            port = t.get('destination', '')
+            for farm, fd in t['farms'].items():
+                shipped_last[(farm, port)] = shipped_last.get((farm, port), 0) + fd['pallets']
+        prev_dia = dias[-2] if len(dias) >= 2 else None
+        if prev_dia:
+            for farm, port_data in last_orders.items():
+                if farm not in adjusted.get(prev_dia, {}):
+                    continue
+                for port, data in port_data.items():
+                    diff = data['pallets'] - shipped_last.get((farm, port), 0)
+                    if diff <= 0:
+                        continue
+                    ratio       = diff / data['pallets'] if data['pallets'] > 0 else 0
+                    extra_cajas = max(1, int(round(ratio * data['cajas'])))
+                    adjusted[last_dia][farm][port]['pallets'] -= diff
+                    adjusted[last_dia][farm][port]['cajas']    = max(0,
+                        adjusted[last_dia][farm][port]['cajas'] - extra_cajas)
+                    if adjusted[last_dia][farm][port]['pallets'] <= 0:
+                        adjusted[last_dia][farm].pop(port, None)
+                    if not adjusted[last_dia].get(farm):
+                        adjusted[last_dia].pop(farm, None)
+                    if port not in adjusted[prev_dia].get(farm, {}):
+                        adjusted[prev_dia].setdefault(farm, {})[port] = {
+                            'pallets': 0, 'cajas': 0, 'pallets_by_size': {}}
+                    adjusted[prev_dia][farm][port]['pallets'] += diff
+                    adjusted[prev_dia][farm][port]['cajas']   += extra_cajas
+                    moves.append({'type': 'diferimiento', 'farm': farm,
+                                  'from_day': last_dia, 'to_day': prev_dia,
+                                  'pallets': diff, 'cajas': extra_cajas,
+                                  'reason': f'Sin enviar el {last_dia.title()} — se anticipan al {prev_dia.title()}'})
 
     # Paso 2: Anticipaciones
     for i, dia in enumerate(dias[:-1]):
