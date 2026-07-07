@@ -1027,7 +1027,8 @@ def compute_inter_day_moves(orders):
 def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
                                  semana_num, unavailable_vehicle_ids_by_day=None,
                                  sheet_name='PLAN DE DESPACHO',
-                                 sheet_title=None):
+                                 sheet_title=None,
+                                 relaxed=False):
     """Hoja PLAN DE DESPACHO o PLAN DESPACHO ORIGINAL: resumen ejecutivo."""
     if unavailable_vehicle_ids_by_day is None:
         unavailable_vehicle_ids_by_day = {}
@@ -1216,7 +1217,7 @@ def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
         for ri, dia in enumerate(dias):
             unavail = unavailable_vehicle_ids_by_day.get(dia,set())
             a_ord   = adjusted_orders.get(dia,{})
-            a_exp   = ([t for t in optimize_day(a_ord, unavailable_vehicle_ids=unavail)
+            a_exp   = ([t for t in optimize_day(a_ord, unavailable_vehicle_ids=unavail, relaxed=relaxed)
                         if t.get('trip_type')=='export'] if a_ord else [])
             av=len(a_exp); ac=int(sum(sum(f['cajas'] for f in t['farms'].values()) for t in a_exp))
             ap=int(sum(t['pallets_cargados'] for t in a_exp)); aco=int(sum(t['costo'] for t in a_exp))
@@ -1253,7 +1254,7 @@ def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
     for dia in dias:
         unavail = unavailable_vehicle_ids_by_day.get(dia,set())
         a_ord   = adjusted_orders.get(dia,{})
-        a_trips = ([t for t in optimize_day(a_ord, unavailable_vehicle_ids=unavail)
+        a_trips = ([t for t in optimize_day(a_ord, unavailable_vehicle_ids=unavail, relaxed=relaxed)
                     if t.get('trip_type')=='export'] if a_ord else [])
 
         ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=NCOLS)
@@ -1588,11 +1589,13 @@ def generate_excel_bytes(orders, semana_num, unavailable_vehicle_ids_by_day=None
         del wb[default_name]
 
     # PLAN DESPACHO ORIGINAL — sin mover pallets entre días (Plan B)
+    # relaxed=True para despachar exactamente lo que pide el proveedor por día
     write_suggested_pedido_sheet(
         wb, orders, orders, [],
         semana_num, unavailable_vehicle_ids_by_day,
         sheet_name='PLAN DESPACHO ORIGINAL',
         sheet_title='PLAN DESPACHO ORIGINAL',
+        relaxed=True,
     )
 
     # Build per-day movement index for write_day_sheet headers
