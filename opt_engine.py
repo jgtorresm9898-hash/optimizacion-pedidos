@@ -125,6 +125,13 @@ CONDUCTOR_FARM_RESTRICTIONS = {
     'EDWIN': {'SAN BARTOLO', 'STA MARIA DEL MONTE'},
 }
 
+# Mínimos de pallets para cuarteo (viaje con más de una finca)
+# Si el viaje ya lleva otra finca y se quiere agregar ésta, debe llegar al mínimo
+CUARTEO_MIN_PALLETS = {
+    'STA MARIA DEL MONTE': 8,   # vía más complicada, mínimo menor
+}
+CUARTEO_MIN_DEFAULT = 12        # cualquier otra finca en cuarteo
+
 DAY_ORDER  = ['LUNES', 'MARTES', 'MIERCOLES', 'JUEVES', 'VIERNES', 'SABADO']
 DAY_EMOJIS = {'LUNES': '🟢', 'MARTES': '🔵', 'MIERCOLES': '🟡', 'JUEVES': '🟠', 'VIERNES': '🔴', 'SABADO': '⚪'}
 DAY_COLORS = {'LUNES': '1B5E20', 'MARTES': '0D47A1', 'MIERCOLES': 'F57F17', 'JUEVES': 'E65100', 'VIERNES': 'B71C1C', 'SABADO': '424242'}
@@ -330,6 +337,12 @@ def assign_farms_to_trips(farm_pallets, farm_cajas, trips):
                 continue
             if trip['remaining'] > 0 and rem_pallets > 0:
                 take = min(int(trip['remaining']), rem_pallets)
+                # Mínimo de cuarteo: si el viaje ya lleva otra finca, verificar
+                # cuántos pallets realmente cargaría en este viaje (no el total)
+                if trip['farms']:
+                    min_cuarteo = CUARTEO_MIN_PALLETS.get(farm, CUARTEO_MIN_DEFAULT)
+                    if take < min_cuarteo:
+                        continue
                 rem_pallets -= take
                 if rem_pallets == 0:
                     take_cajas = rem_cajas
@@ -372,7 +385,11 @@ def _combined_fill(chigorodo_trips, apart_route_data):
             # Restricción global: conductor no puede ir a ciertas fincas
             if farm in CONDUCTOR_FARM_RESTRICTIONS.get(conductor, set()):
                 continue
+            # Mínimo de cuarteo: verificar cuántos pallets realmente cargaría
             take_p = min(spare, fdata['pallets'])
+            min_cuarteo = CUARTEO_MIN_PALLETS.get(farm, CUARTEO_MIN_DEFAULT)
+            if take_p < min_cuarteo:
+                continue
             # Cajas proporcionales (exactas si es el ultimo trozo)
             if take_p == fdata['pallets']:
                 take_c = fdata['cajas']
@@ -440,7 +457,7 @@ def label_trip_times(trips):
 
 
 # ── Optimizacion diaria ───────────────────────────────────────
-def _optimize_phase(phase_orders, unavailable_vehicle_ids=None, enable_combined_fill=True):
+def _optimize_phase(phase_orders, unavailable_vehicle_ids=None, enable_combined_fill=True, min_pallets=5):
     if unavailable_vehicle_ids is None:
         unavailable_vehicle_ids = set()
 
@@ -557,6 +574,35 @@ def _optimize_phase(phase_orders, unavailable_vehicle_ids=None, enable_combined_
             trips_a = assign_farms_to_trips(farm_pallets, farm_cajas, trips_a)
             recalculate_variable_costs(trips_a)
             tag(trips_a, port, 'export')
+
+        # ── Mop-up: pallets que quedaron sin asignar por restricción de cuarteo ──
+        # Calcular residuos reales por finca (pedido - asignado en trips_a)
+        assigned_by_farm = {}
+        for _t in trips_a:
+            for _f, _fd in _t.get('farms', {}).items():
+                assigned_by_farm[_f] = assigned_by_farm.get(_f, 0) + _fd['pallets']
+        for _farm, _total_p in farm_pallets.items():
+            _residual_p = _total_p - assigned_by_farm.get(_farm, 0)
+            if _residual_p < min_pallets:
+                continue  # demasiado pequeño, lo maneja el inter-day
+            # Verificar restricción conductor de Yuber (en general no tiene)
+            if _farm in CONDUCTOR_FARM_RESTRICTIONS.get('YUBER', set()):
+                continue
+            # Buscar vehículos disponibles para este residuo (preferir Yuber)
+            _mop_veh = [v for v in vehicles
+                        if v.get('vehicle_id', '') not in unavailable_vehicle_ids
+                        and not (_farm in CONDUCTOR_FARM_RESTRICTIONS.get(v.get('conductor',''), set()))]
+            if not _mop_veh:
+                continue
+            _res_cajas = farm_cajas.get(_farm, 0) - sum(
+                _t.get('farms', {}).get(_farm, {}).get('cajas', 0) for _t in trips_a)
+            _res_cajas = max(0, int(_res_cajas))
+            _, _mop_trips = min_cost_assignment_bounded(_residual_p, _mop_veh)
+            _mop_trips = assign_farms_to_trips({_farm: _residual_p}, {_farm: _res_cajas}, _mop_trips)
+            recalculate_variable_costs(_mop_trips)
+            tag(_mop_trips, port, 'export')
+            trips_a.extend(_mop_trips)
+            cost_a += sum(_t['costo'] for _t in _mop_trips)
 
         consol_candidates = [f for f in farm_pallets if f in CONSOLIDACION_ROUTES]
         if not consol_candidates:
@@ -708,6 +754,7 @@ def optimize_day(day_orders, unavailable_vehicle_ids=None, relaxed=False):
         t['hora'] = 'Mediodía'
 
     # Fase 2: Tarde — sobrante, combined fill habilitado
+    TARDE_MIN_PALLETS = 0 if relaxed else 5
     mediodia_vids = {t['vehicle_id'] for t in mediodia_trips}
     # Viaje1 de conductores con 2 slots (Demetrio/Edwin): si no salió en mediodía,
     # bloquearlo también en tarde — un conductor no puede hacer 2 viajes de tarde.
@@ -718,13 +765,13 @@ def optimize_day(day_orders, unavailable_vehicle_ids=None, relaxed=False):
         tarde_orders,
         unavailable_vehicle_ids=unavailable_vehicle_ids | mediodia_vids | unused_viaje1,
         enable_combined_fill=True,
+        min_pallets=TARDE_MIN_PALLETS,
     )
     for t in tarde_trips:
         t['hora'] = 'Tarde'
 
     # Filtro tarde: descartar viajes con menos de 5 pallets
     # (remanentes mínimos — se consolidan al día siguiente).
-    TARDE_MIN_PALLETS = 0 if relaxed else 5
     tarde_trips = [t for t in tarde_trips
                    if t.get('trip_type') != 'export'
                    or t.get('pallets_cargados', 0) >= TARDE_MIN_PALLETS]
