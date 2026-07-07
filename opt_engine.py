@@ -1559,113 +1559,31 @@ def generate_excel_bytes(orders, semana_num, unavailable_vehicle_ids_by_day=None
         if sug_trips:
             sug_day_results[day] = sug_trips
 
-    ws_sum       = wb.active
-    ws_sum.title = 'RESUMEN SEMANA'
-    ws_sum.merge_cells('A1:F1')
-    c           = ws_sum['A1']
-    c.value     = 'RESUMEN OPTIMIZACION - SEMANA {}'.format(semana_num)
-    c.font      = Font(name='Arial', size=13, bold=True, color='FFFFFF')
-    c.fill      = PatternFill('solid', fgColor='1B5E20')
-    c.alignment = Alignment(horizontal='center', vertical='center')
-    ws_sum.row_dimensions[1].height = 28
-
-    sum_headers = ['DIA', 'VIAJES', 'CAJAS', 'PALLETS', 'COSTO TOTAL', 'CONSOLIDACIONES']
-    for ci, h in enumerate(sum_headers, 1):
-        c           = ws_sum.cell(row=2, column=ci, value=h)
-        c.font      = Font(name='Arial', size=9, bold=True, color='FFFFFF')
-        c.fill      = PatternFill('solid', fgColor='2E7D32')
-        c.alignment = Alignment(horizontal='center')
-        ws_sum.column_dimensions[get_column_letter(ci)].width = [14, 10, 13, 11, 16, 18][ci-1]
-    ws_sum.row_dimensions[2].height = 18
-
-    sum_row = 3
-    grand   = {'cost': 0, 'cajas': 0, 'pallets': 0, 'viajes': 0}
+    # Totales generales (sin hoja RESUMEN SEMANA)
+    grand = {'cost': 0, 'cajas': 0, 'pallets': 0, 'viajes': 0}
     for day in sorted_days:
         if day not in day_results and day not in sug_day_results:
             continue
         trips        = sug_day_results.get(day, day_results.get(day, []))
         export_trips = [t for t in trips if t.get('trip_type') == 'export']
-        d_cost    = sum(t['costo'] for t in export_trips)
-        d_cajas   = sum(sum(f['cajas'] for f in t['farms'].values()) for t in export_trips)
-        d_pallets = sum(t['pallets_cargados'] for t in export_trips)
-        d_viajes  = len(export_trips)
-        grand['cost']    += d_cost
-        grand['cajas']   += d_cajas
-        grand['pallets'] += d_pallets
-        grand['viajes']  += d_viajes
-        bg  = 'F1F8E9' if sum_row % 2 == 0 else 'FFFFFF'
-        row_vals = [day.capitalize(), d_viajes, d_cajas, int(d_pallets), d_cost, '']
-        for ci, val in enumerate(row_vals, 1):
-            c           = ws_sum.cell(row=sum_row, column=ci, value=val)
-            c.font      = Font(name='Arial', size=9)
-            c.fill      = PatternFill('solid', fgColor=bg)
-            c.alignment = Alignment(horizontal='center', vertical='center')
-            if ci == 5:
-                c.number_format = '"$"#,##0'
-            if ci == 3:
-                c.number_format = '#,##0'
-        sum_row += 1
+        grand['cost']    += sum(t['costo'] for t in export_trips)
+        grand['cajas']   += sum(sum(f['cajas'] for f in t['farms'].values()) for t in export_trips)
+        grand['pallets'] += sum(t['pallets_cargados'] for t in export_trips)
+        grand['viajes']  += len(export_trips)
 
-    vals = ['TOTAL SEMANA', grand['viajes'], grand['cajas'], int(grand['pallets']), grand['cost'], '']
-    for ci, val in enumerate(vals, 1):
-        c           = ws_sum.cell(row=sum_row, column=ci, value=val)
-        c.font      = Font(name='Arial', size=9, bold=True, color='FFFFFF')
-        c.fill      = PatternFill('solid', fgColor='1B5E20')
-        c.alignment = Alignment(horizontal='center', vertical='center')
-        if ci == 5:
-            c.number_format = '"$"#,##0'
-        if ci == 3:
-            c.number_format = '#,##0'
-    ws_sum.row_dimensions[sum_row].height = 20
-    border_all(ws_sum, 1, sum_row, 1, 6)
-
-    # Detalle pallets por finca
-    detail_row = sum_row + 2
-    ws_sum.merge_cells('A{}:F{}'.format(detail_row, detail_row))
-    c           = ws_sum.cell(row=detail_row, column=1, value='DETALLE DE PALLETS POR FINCA')
-    c.font      = Font(name='Arial', size=11, bold=True, color='FFFFFF')
-    c.fill      = PatternFill('solid', fgColor='1B5E20')
-    c.alignment = Alignment(horizontal='center', vertical='center')
-    ws_sum.row_dimensions[detail_row].height = 22
-
-    header_row     = detail_row + 1
-    detail_headers = ['DIA', 'FINCA', 'PUERTO', 'PALLETS POR TIPO', 'TOTAL PALLETS', 'TOTAL CAJAS']
-    for ci, h in enumerate(detail_headers, 1):
-        c           = ws_sum.cell(row=header_row, column=ci, value=h)
-        c.font      = Font(name='Arial', size=9, bold=True, color='FFFFFF')
-        c.fill      = PatternFill('solid', fgColor='2E7D32')
-        c.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-    ws_sum.row_dimensions[header_row].height = 18
-
-    detail_row_idx = header_row + 1
-    for day in sorted_days:
-        if day not in day_results:
-            continue
-        for farm in sorted(orders[day].keys()):
-            for port, data in orders[day][farm].items():
-                if data.get('pallets', 0) <= 0:
-                    continue
-                bg   = 'F1F8E9' if detail_row_idx % 2 == 0 else 'FFFFFF'
-                vals = [
-                    day.capitalize(), farm, port,
-                    format_pallets_by_size(data.get('pallets_by_size', {}), data['pallets']),
-                    int(data['pallets']), data['cajas'],
-                ]
-                for ci, val in enumerate(vals, 1):
-                    c           = ws_sum.cell(row=detail_row_idx, column=ci, value=val)
-                    c.font      = Font(name='Arial', size=9)
-                    c.fill      = PatternFill('solid', fgColor=bg)
-                    c.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-                    if ci in (5, 6):
-                        c.number_format = '#,##0'
-                detail_row_idx += 1
-    border_all(ws_sum, detail_row, detail_row_idx - 1, 1, 6)
-
-    for ci, w in enumerate([14, 22, 16, 28, 14, 13], 1):
-        ws_sum.column_dimensions[get_column_letter(ci)].width = w
+    # PLAN DE DESPACHO va primero
+    adjusted_orders_plan, inter_day_moves_plan = compute_inter_day_moves(orders)
+    write_suggested_pedido_sheet(
+        wb, orders, adjusted_orders_plan, inter_day_moves_plan,
+        semana_num, unavailable_vehicle_ids_by_day,
+    )
+    # Eliminar la hoja vacía por defecto que crea openpyxl
+    default_name = wb.sheetnames[0]
+    if default_name != 'PLAN DE DESPACHO':
+        del wb[default_name]
 
     # Build per-day movement index for write_day_sheet headers
-    _, _raw_moves = compute_inter_day_moves(orders)
+    _raw_moves = inter_day_moves_plan
     inter_day_moves_by_day = {}
     for mv in (_raw_moves or []):
         fd = mv.get('from_day', '')
@@ -1690,13 +1608,6 @@ def generate_excel_bytes(orders, semana_num, unavailable_vehicle_ids_by_day=None
                         banafrut_orders=orders.get(day, {}),
                         inter_day_moves=inter_day_moves_by_day,
                         has_modifications=has_mod)
-
-    # Hoja: Pedido Sugerido
-    adjusted_orders, inter_day_moves = compute_inter_day_moves(orders)
-    write_suggested_pedido_sheet(
-        wb, orders, adjusted_orders, inter_day_moves,
-        semana_num, unavailable_vehicle_ids_by_day,
-    )
 
     buf = io.BytesIO()
     wb.save(buf)
