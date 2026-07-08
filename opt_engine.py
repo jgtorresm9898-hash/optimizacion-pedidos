@@ -116,7 +116,7 @@ FARM_MEDIODIA_MAX = {
     'DOÑA FRANCIA':          20,
     'SAN BARTOLO':           15,
     'JUANA PIO':             13,
-    'SALVAMENTO':            99,
+    'SALVAMENTO':             6,
 }
 
 # Restricciones conductor → fincas que NO puede visitar
