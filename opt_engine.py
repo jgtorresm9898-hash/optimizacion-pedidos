@@ -23,6 +23,8 @@ VEHICLE_DISPLAY = {
     'YUBER_MULA_2':        {'conductor': 'Yuber',   'vehicle': 'Mula 2 - 24P'},
     'YUBER_MULA_3':        {'conductor': 'Yuber',   'vehicle': 'Mula 3 - 24P'},
     'YUBER_MULA_4':        {'conductor': 'Yuber',   'vehicle': 'Mula 4 - 24P'},
+    'YUBER_MULA_5':        {'conductor': 'Yuber',   'vehicle': 'Mula 5 - 24P'},
+    'YUBER_MULA_6':        {'conductor': 'Yuber',   'vehicle': 'Mula 6 - 24P'},
     'DEMETRIO_PATINETA':   {'conductor': 'Demetrio', 'vehicle': 'Patineta 18P (Viaje 1)'},
     'DEMETRIO_PATINETA_2': {'conductor': 'Demetrio', 'vehicle': 'Patineta 18P (Viaje 2)'},
     'EDWIN_MULA':          {'conductor': 'Edwin',   'vehicle': 'Mula 24P (Viaje 1)'},
@@ -41,6 +43,10 @@ _YUBER_CHIGORODO = [
      'pallets_negociados': 20, 'costo_extra_pallet': 25000, 'vehicle_id': 'YUBER_MULA_3'},
     {'conductor': 'YUBER', 'tipo': 'MULA', 'capacidad': 24, 'costo': 1050000,
      'pallets_negociados': 20, 'costo_extra_pallet': 25000, 'vehicle_id': 'YUBER_MULA_4'},
+    {'conductor': 'YUBER', 'tipo': 'MULA', 'capacidad': 24, 'costo': 1050000,
+     'pallets_negociados': 20, 'costo_extra_pallet': 25000, 'vehicle_id': 'YUBER_MULA_5'},
+    {'conductor': 'YUBER', 'tipo': 'MULA', 'capacidad': 24, 'costo': 1050000,
+     'pallets_negociados': 20, 'costo_extra_pallet': 25000, 'vehicle_id': 'YUBER_MULA_6'},
 ]
 _YUBER_APARTADO = [
     {'conductor': 'YUBER', 'tipo': 'MULA', 'capacidad': 24, 'costo': 630000,
@@ -51,6 +57,10 @@ _YUBER_APARTADO = [
      'pallets_negociados': 20, 'costo_extra_pallet': 25000, 'vehicle_id': 'YUBER_MULA_3'},
     {'conductor': 'YUBER', 'tipo': 'MULA', 'capacidad': 24, 'costo': 630000,
      'pallets_negociados': 20, 'costo_extra_pallet': 25000, 'vehicle_id': 'YUBER_MULA_4'},
+    {'conductor': 'YUBER', 'tipo': 'MULA', 'capacidad': 24, 'costo': 630000,
+     'pallets_negociados': 20, 'costo_extra_pallet': 25000, 'vehicle_id': 'YUBER_MULA_5'},
+    {'conductor': 'YUBER', 'tipo': 'MULA', 'capacidad': 24, 'costo': 630000,
+     'pallets_negociados': 20, 'costo_extra_pallet': 25000, 'vehicle_id': 'YUBER_MULA_6'},
 ]
 
 _EDWIN_CHIGORODO = [
@@ -96,12 +106,14 @@ VEHICLES_BY_ROUTE = {
 CONSOLIDACION_ROUTES = {}
 
 FARM_ZONES = {
+    # Apartadó: Doña Francia, Chispero, Santa María, Salvamento
     'SANTA MARIA DEL MONTE': 'APARTADO',
     'STA MARIA DEL MONTE':   'APARTADO',
     'DONA FRANCIA':          'APARTADO',
     'DOÑA FRANCIA':          'APARTADO',
     'CHISPERO':              'APARTADO',
     'SALVAMENTO':            'APARTADO',
+    # Chigorodó: San Bartolo, Juana Pío
     'JUANA PIO':             'CHIGORODO',
     'SAN BARTOLO':           'CHIGORODO',
 }
@@ -120,17 +132,19 @@ FARM_MEDIODIA_MAX = {
 }
 
 # Restricciones conductor → fincas que NO puede visitar
-# Edwin: su Mula no cabe en las vías de San Bartolo ni Sta Maria Del Monte
+# Edwin: su Mula no cabe en las vías de San Bartolo (Chigorodó) ni Santa María (Apartadó)
 CONDUCTOR_FARM_RESTRICTIONS = {
-    'EDWIN': {'SAN BARTOLO', 'STA MARIA DEL MONTE'},
+    'EDWIN': {'SAN BARTOLO', 'STA MARIA DEL MONTE', 'SANTA MARIA DEL MONTE'},
 }
 
 # Mínimos de pallets para cuarteo (viaje con más de una finca)
 # Si el viaje ya lleva otra finca y se quiere agregar ésta, debe llegar al mínimo
+# Regla: Santa María ≥ 8P, demás fincas ≥ 12P
 CUARTEO_MIN_PALLETS = {
-    'STA MARIA DEL MONTE': 8,   # vía más complicada, mínimo menor
+    'STA MARIA DEL MONTE':   8,   # vía más complicada, mínimo menor
+    'SANTA MARIA DEL MONTE': 8,   # alias sin abreviar
 }
-CUARTEO_MIN_DEFAULT = 12        # cualquier otra finca en cuarteo
+CUARTEO_MIN_DEFAULT = 12          # cualquier otra finca en cuarteo
 
 DAY_ORDER  = ['LUNES', 'MARTES', 'MIERCOLES', 'JUEVES', 'VIERNES', 'SABADO']
 DAY_EMOJIS = {'LUNES': '🟢', 'MARTES': '🔵', 'MIERCOLES': '🟡', 'JUEVES': '🟠', 'VIERNES': '🔴', 'SABADO': '⚪'}
@@ -288,10 +302,15 @@ def min_cost_assignment_bounded(total_pallets, vehicles):
 
 
 def recalculate_variable_costs(trips):
-    """Actualiza el costo de viajes con precio variable (ej. Yuber) segun pallets cargados."""
+    """Actualiza el costo de viajes con precio variable (ej. Yuber) segun pallets reales.
+    También sincroniza pallets_cargados al load real (suma de farms), ya que el slot
+    inicial del DP puede ser mayor que la carga efectiva tras restricciones de cuarteo."""
     for t in trips:
+        actual = sum(fd['pallets'] for fd in t.get('farms', {}).values())
+        if actual > 0 or t.get('farms') is not None:
+            t['pallets_cargados'] = actual  # sincronizar al load real
         if t.get('costo_extra_pallet', 0) > 0:
-            extra    = max(0, t['pallets_cargados'] - t['pallets_negociados'])
+            extra    = max(0, actual - t['pallets_negociados'])
             t['costo'] = t['costo_base'] + extra * t['costo_extra_pallet']
     return trips
 
@@ -323,6 +342,12 @@ def format_pallets_by_size(pallets_by_size, total_pallets=0):
 
 # ── Distribución de fincas en viajes ─────────────────────────
 def assign_farms_to_trips(farm_pallets, farm_cajas, trips):
+    # Mínimo absoluto para fills en viajes con finca existente.
+    # El objetivo es siempre llenar el camión más barato primero (optimizar peso).
+    # Los fills pequeños son válidos: STA MARIA 4P, CHISPERO 4P, JUANA PIO 9P, etc.
+    # Solo bloqueamos fills absurdos de 1-2P que no valen la parada en finca.
+    FILL_MIN_PALLETS = 3
+
     sorted_farms = sorted(farm_pallets.items(), key=lambda x: -x[1])
     for trip in trips:
         trip['remaining'] = trip['pallets_cargados']
@@ -337,11 +362,34 @@ def assign_farms_to_trips(farm_pallets, farm_cajas, trips):
                 continue
             if trip['remaining'] > 0 and rem_pallets > 0:
                 take = min(int(trip['remaining']), rem_pallets)
-                # Mínimo de cuarteo: si el viaje ya lleva otra finca, verificar
-                # cuántos pallets realmente cargaría en este viaje (no el total)
+                min_cuarteo = CUARTEO_MIN_PALLETS.get(farm, CUARTEO_MIN_DEFAULT)
                 if trip['farms']:
-                    min_cuarteo = CUARTEO_MIN_PALLETS.get(farm, CUARTEO_MIN_DEFAULT)
-                    if take < min_cuarteo:
+                    # Viaje con finca(s) existente: fill libre.
+                    # Prioridad = llenar el camión al máximo (optimizar peso).
+                    # Regla: bloquear solo si take < mínimo Y hay más pallets esperando
+                    #        de esta finca (no son los últimos). Si son los últimos
+                    #        pallets de la finca, siempre permitir (evita 2P huérfanos).
+                    is_last_batch = (take >= rem_pallets)
+                    if take < FILL_MIN_PALLETS and not is_last_batch:
+                        continue
+                    # Evitar overage innecesario en camiones con tarifa variable.
+                    # Si el fill supera los pallets negociados y no es el último
+                    # lote de esta finca, limitar al espacio en tarifa plana.
+                    # Ej: CHISPERO 20P + SALV 4P fill = 24P ($730k) es peor que
+                    #     CHISPERO 20P ($630k) + SALV 11P viaje propio ($630k).
+                    if trip.get('costo_extra_pallet', 0) > 0 and not is_last_batch:
+                        _farms_loaded = sum(fd['pallets'] for fd in trip['farms'].values())
+                        _pals_neg     = trip.get('pallets_negociados', trip.get('capacidad', 24))
+                        if _farms_loaded + take > _pals_neg:
+                            take = max(0, _pals_neg - _farms_loaded)
+                            if take < FILL_MIN_PALLETS:
+                                continue
+                else:
+                    # Viaje vacío (primera finca): sí respetar mínimo de cuarteo.
+                    # Si el slot DP es demasiado pequeño Y la finca tiene más pallets
+                    # disponibles → saltarse este slot para que el mop-up la ubique
+                    # en un camión adecuado. Previene JUANA PIO 1P en slot pequeño.
+                    if take < min_cuarteo and rem_pallets > take:
                         continue
                 rem_pallets -= take
                 if rem_pallets == 0:
@@ -352,6 +400,19 @@ def assign_farms_to_trips(farm_pallets, farm_cajas, trips):
                 trip['farms'][farm] = {'pallets': take, 'cajas': take_cajas}
                 trip['remaining']  -= take
                 rem_cajas          -= take_cajas
+
+    # ── Post-proceso: eliminar fills absurdos de 1-2P ──────────────────────
+    # Solo se eliminan fills menores a FILL_MIN_PALLETS (1-2P que no valen la parada).
+    # Fills válidos como STA MARIA 4P, JUANA PIO 9P se mantienen.
+    for trip in trips:
+        if len(trip.get('farms', {})) < 2:
+            continue
+        violating = [
+            f for f, fd in list(trip['farms'].items())
+            if fd['pallets'] < 2   # Solo eliminar fills patológicos de 1P
+        ]
+        for f in violating:
+            trip['farms'].pop(f)
     return trips
 
 
@@ -385,10 +446,12 @@ def _combined_fill(chigorodo_trips, apart_route_data):
             # Restricción global: conductor no puede ir a ciertas fincas
             if farm in CONDUCTOR_FARM_RESTRICTIONS.get(conductor, set()):
                 continue
-            # Mínimo de cuarteo: verificar cuántos pallets realmente cargaría
+            # Fill Chigorodó→Apartadó: mismo criterio de fill libre.
+            # Objetivo: llenar el camión al máximo con lo que haya disponible.
+            # Solo rechazar fills absurdos de 1-2P.
+            FILL_MIN_PALLETS = 3
             take_p = min(spare, fdata['pallets'])
-            min_cuarteo = CUARTEO_MIN_PALLETS.get(farm, CUARTEO_MIN_DEFAULT)
-            if take_p < min_cuarteo:
+            if take_p < FILL_MIN_PALLETS:
                 continue
             # Cajas proporcionales (exactas si es el ultimo trozo)
             if take_p == fdata['pallets']:
@@ -457,7 +520,7 @@ def label_trip_times(trips):
 
 
 # ── Optimizacion diaria ───────────────────────────────────────
-def _optimize_phase(phase_orders, unavailable_vehicle_ids=None, enable_combined_fill=True, min_pallets=5):
+def _optimize_phase(phase_orders, unavailable_vehicle_ids=None, enable_combined_fill=True, min_pallets=5, zone_order=None):
     if unavailable_vehicle_ids is None:
         unavailable_vehicle_ids = set()
 
@@ -498,9 +561,17 @@ def _optimize_phase(phase_orders, unavailable_vehicle_ids=None, enable_combined_
             return float('inf')
         return max(0, total_p - excl_cap)
 
+    # Desempate de zonas.  Modo normal: CHIGORODO primero para que el
+    # combined-fill (Chigorodó → Apartadó) funcione correctamente.
+    # Modo APARTADO_FIRST: APARTADO va primero para que EDWIN quede libre
+    # para DF/Chispero en lugar de irse a JUANA PIO.
+    if zone_order == 'APARTADO_FIRST':
+        ZONE_PRIORITY = {'APARTADO': 1, 'CHIGORODO': 0}
+    else:
+        ZONE_PRIORITY = {'CHIGORODO': 1, 'APARTADO': 0}
     sorted_routes = sorted(
         route_groups.items(),
-        key=lambda x: _shared_demand(x[0]),
+        key=lambda x: (_shared_demand(x[0]), ZONE_PRIORITY.get(x[0][0], 0)),
         reverse=True,
     )
 
@@ -543,8 +614,11 @@ def _optimize_phase(phase_orders, unavailable_vehicle_ids=None, enable_combined_
                                     for f in restr_farms)]
         ineligible_veh = [v for v in vehicles if v not in eligible_veh]
 
-        if restr_farms and ineligible_veh:
+        if restr_farms and (ineligible_veh or len(farm_pallets) > len(restr_farms)):
             # Sub-optimización A: fincas restringidas → solo vehículos elegibles
+            # Nota: también se activa cuando todas las fincas son restringidas pero
+            # hay fincas libres adicionales — así SAN BARTOLO y JUANA PIO siempre
+            # obtienen slots separados y no se mezclan en un slot 24P+4P inutilizable.
             rp = {f: farm_pallets[f] for f in restr_farms}
             rc = {f: farm_cajas[f]   for f in restr_farms}
             total_r = sum(rp.values())
@@ -554,9 +628,51 @@ def _optimize_phase(phase_orders, unavailable_vehicle_ids=None, enable_combined_
             tag(trips_r, port, 'export')
             used_r = {t.get('vehicle_id', '') for t in trips_r}
 
-            # Sub-optimización B: fincas libres → vehículos restantes (incl. Edwin)
+            # Relleno de capacidad sobrante en trips_r con fincas libres.
+            # Ejemplo: DEMETRIO lleva STA MARIA 16P (cap=24P) → 8P libres que
+            # pueden recibir DOÑA FRANCIA antes de que EDWIN tome el resto.
             fp2 = {f: farm_pallets[f] for f in farm_pallets if f not in restr_farms}
             fc2 = {f: farm_cajas[f]   for f in farm_pallets if f not in restr_farms}
+            fp2_fill = dict(fp2)  # copia mutable para el relleno
+            fc2_fill = dict(fc2)
+            for _farm in sorted(fp2_fill, key=lambda f: -fp2_fill[f]):
+                _rem_p  = fp2_fill[_farm]
+                _rem_c  = fc2_fill[_farm]
+                _orig_p = fp2[_farm]
+                _cuarteo_min = CUARTEO_MIN_PALLETS.get(_farm, CUARTEO_MIN_DEFAULT)
+                for _t in trips_r:
+                    _cond = _t.get('conductor', '')
+                    if _farm in CONDUCTOR_FARM_RESTRICTIONS.get(_cond, set()):
+                        continue
+                    _spare = _t.get('capacidad', 0) - _t.get('pallets_cargados', 0)
+                    if _spare <= 0 or _rem_p <= 0:
+                        continue
+                    _take = min(_spare, _rem_p)
+                    _is_last = (_take >= _rem_p)
+                    # Respetar cuarteo mínimo: si la finca no está ya en el viaje
+                    # y el take es menor que el mínimo requerido, solo permitir si
+                    # es el último batch (todos los pallets restantes de la finca).
+                    _already = _farm in _t.get('farms', {})
+                    if not _already and _take < _cuarteo_min and not _is_last:
+                        continue
+                    if _take < 2:  # Evitar fills de 1P que luego se eliminarían
+                        continue
+                    _ratio = _take / _orig_p if _orig_p > 0 else 0
+                    _take_c = min(int(round(_ratio * fc2[_farm])), _rem_c)
+                    if not _already:
+                        _t['farms'][_farm] = {'pallets': 0, 'cajas': 0}
+                    _t['farms'][_farm]['pallets'] += _take
+                    _t['farms'][_farm]['cajas']   += _take_c
+                    _t['pallets_cargados'] = _t.get('pallets_cargados', 0) + _take
+                    _rem_p -= _take
+                    _rem_c -= _take_c
+                fp2_fill[_farm] = _rem_p
+                fc2_fill[_farm] = _rem_c
+            recalculate_variable_costs(trips_r)
+
+            # Sub-optimización B: fincas libres RESTANTES → vehículos restantes (incl. Edwin)
+            fp2 = {f: p for f, p in fp2_fill.items() if p > 0}
+            fc2 = {f: fc2_fill[f] for f in fp2}
             veh2 = [v for v in vehicles if v.get('vehicle_id', '') not in used_r]
             total_f = sum(fp2.values())
             if total_f > 0 and veh2:
@@ -568,7 +684,7 @@ def _optimize_phase(phase_orders, unavailable_vehicle_ids=None, enable_combined_
                 trips_f = []
 
             trips_a  = trips_r + trips_f
-            cost_a   = cost_r + sum(t['costo'] for t in trips_f)
+            cost_a   = sum(t['costo'] for t in trips_r) + sum(t['costo'] for t in trips_f)
         else:
             cost_a, trips_a = min_cost_assignment_bounded(total, vehicles)
             trips_a = assign_farms_to_trips(farm_pallets, farm_cajas, trips_a)
@@ -583,20 +699,68 @@ def _optimize_phase(phase_orders, unavailable_vehicle_ids=None, enable_combined_
                 assigned_by_farm[_f] = assigned_by_farm.get(_f, 0) + _fd['pallets']
         for _farm, _total_p in farm_pallets.items():
             _residual_p = _total_p - assigned_by_farm.get(_farm, 0)
+            if _residual_p <= 0:
+                continue
             if _residual_p < min_pallets:
-                continue  # demasiado pequeño, lo maneja el inter-day
+                # Residual pequeño: intentar añadirlo a un viaje que ya lleva esta
+                # finca y tiene capacidad física sobrante (no arranca viaje nuevo).
+                # Calculamos cajas proporcionales restantes para esta finca.
+                _cajas_already = sum(
+                    _t.get('farms', {}).get(_farm, {}).get('cajas', 0) for _t in trips_a)
+                _res_cajas_sm = max(0, int(farm_cajas.get(_farm, 0)) - _cajas_already)
+                for _t in trips_a:
+                    if _farm not in _t.get('farms', {}):
+                        continue
+                    if _farm in CONDUCTOR_FARM_RESTRICTIONS.get(_t.get('conductor', ''), set()):
+                        continue
+                    _phys_spare = _t.get('capacidad', 0) - _t.get('pallets_cargados', 0)
+                    if _phys_spare <= 0:
+                        continue
+                    _add = min(_phys_spare, _residual_p)
+                    _t['farms'][_farm]['pallets']     += _add
+                    _t['farms'][_farm]['cajas']       += _res_cajas_sm  # todos los cajas restantes
+                    _t['pallets_cargados']             = _t.get('pallets_cargados', 0) + _add
+                    _residual_p                       -= _add
+                    break
+                continue  # si quedó residual aún, lo maneja inter-day
             # Verificar restricción conductor de Yuber (en general no tiene)
             if _farm in CONDUCTOR_FARM_RESTRICTIONS.get('YUBER', set()):
                 continue
             # Buscar vehículos disponibles para este residuo (preferir Yuber)
+            # Excluir también los vehículos ya comprometidos en trips_a (mismo turno)
+            _vids_in_trips = {t.get('vehicle_id', '') for t in trips_a}
             _mop_veh = [v for v in vehicles
                         if v.get('vehicle_id', '') not in unavailable_vehicle_ids
+                        and v.get('vehicle_id', '') not in _vids_in_trips
                         and not (_farm in CONDUCTOR_FARM_RESTRICTIONS.get(v.get('conductor',''), set()))]
-            if not _mop_veh:
-                continue
             _res_cajas = farm_cajas.get(_farm, 0) - sum(
                 _t.get('farms', {}).get(_farm, {}).get('cajas', 0) for _t in trips_a)
             _res_cajas = max(0, int(_res_cajas))
+            if not _mop_veh:
+                # No hay vehículos libres: reutilizar viajes vacíos (slots del DP
+                # que quedaron sin fincas porque todas las fincas saltaron el slot
+                # pequeño gracias a la protección de cuarteo mínimo).
+                # Ejemplo: YUBER_1 con slot 4P y 0 pallets asignados puede recibir
+                # JUANA PIO 13P si expandimos su slot a la capacidad real (24P).
+                for _t in trips_a:
+                    if _t.get('farms', {}):
+                        continue  # este viaje ya tiene fincas — no reutilizar
+                    if _farm in CONDUCTOR_FARM_RESTRICTIONS.get(_t.get('conductor',''), set()):
+                        continue
+                    # Expandir slot al mínimo necesario y asignar la finca
+                    _slot = min(_t['capacidad'], _residual_p)
+                    _t['pallets_cargados'] = _slot
+                    _t['remaining']        = _slot
+                    _t['farms']            = {}
+                    _assign_r = assign_farms_to_trips(
+                        {_farm: _residual_p}, {_farm: _res_cajas}, [_t])
+                    recalculate_variable_costs(_assign_r)
+                    tag(_assign_r, port, 'export')
+                    # El viaje ya está en trips_a; solo actualizar costo
+                    cost_a += _t['costo']
+                    _residual_p = 0
+                    break
+                continue  # si aún quedan pallets, inter-day los maneja
             _, _mop_trips = min_cost_assignment_bounded(_residual_p, _mop_veh)
             _mop_trips = assign_farms_to_trips({_farm: _residual_p}, {_farm: _res_cajas}, _mop_trips)
             recalculate_variable_costs(_mop_trips)
@@ -718,65 +882,102 @@ def _compute_tarde_demand(day_orders, mediodia_trips):
     return result
 
 
-# ── Optimizacion diaria (dos fases: mediodía + tarde) ────────
+# ── Optimizacion diaria (tres opciones: elige la más barata) ────────
 def optimize_day(day_orders, unavailable_vehicle_ids=None, relaxed=False):
     """
-    Optimiza un día completo en dos fases:
-    - Mediodía: demanda capada a FARM_MEDIODIA_MAX. Sin mezcla de zonas.
-    - Tarde:    demanda restante. Combined fill Chigorodó→Apartadó habilitado.
+    Evalúa 3 estrategias de despacho y elige la de menor costo:
+      A) Mediodía con caps operativos (FARM_MEDIODIA_MAX) + tarde
+      B) Mediodía libre sin caps (el DP decide cuánto va al mediodía) + tarde
+      C) Sin mediodía — todo en tarde (Edwin/Demetrio solo 1 slot cada uno)
+    El mediodía NO es obligatorio: solo se usa si genera un plan más barato.
     """
     if unavailable_vehicle_ids is None:
         unavailable_vehicle_ids = set()
 
-    # Fase 1: Mediodía — solo lo que está listo, zona pura
-    # Viaje 2 de Demetrio/Edwin siempre reservados para tarde
     VIAJE2_VIDS = {'DEMETRIO_PATINETA_2', 'EDWIN_MULA_2'}
-    mediodia_orders = _cap_to_mediodia(day_orders)
-    mediodia_trips  = _optimize_phase(
-        mediodia_orders,
-        unavailable_vehicle_ids=unavailable_vehicle_ids | VIAJE2_VIDS,
-        enable_combined_fill=False,
-    )
-    # Descartar viajes mediodía que salgan con menos del 80% de la
-    # capacidad disponible de las fincas al mediodía — no vale la pena
-    # mandar una mula medio vacía.
-    # Umbral mediodía por tipo de vehículo:
-    #   Mulas (24P): necesitan ≥ 80% = 19P para justificar el viaje de mañana
-    #   Patinetas (18P): umbral más suave 60% = 11P (rutas más cortas, menor costo)
+    VIAJE1_VIDS = {'DEMETRIO_PATINETA', 'EDWIN_MULA'}
+    TARDE_MIN   = 0 if relaxed else 5
+
     def _mediodia_min(cap):
         if relaxed:
             return 0
-        return int(cap * (0.60 if cap <= 18 else 0.80))
-    mediodia_trips = [t for t in mediodia_trips
-                      if t.get('trip_type') != 'export'
-                      or t.get('pallets_cargados', 0) >= _mediodia_min(t.get('capacidad', 24))]
-    for t in mediodia_trips:
-        t['hora'] = 'Mediodía'
+        return int(cap * (0.60 if cap <= 18 else 0.50))
 
-    # Fase 2: Tarde — sobrante, combined fill habilitado
-    TARDE_MIN_PALLETS = 0 if relaxed else 5
-    mediodia_vids = {t['vehicle_id'] for t in mediodia_trips}
-    # Viaje1 de conductores con 2 slots (Demetrio/Edwin): si no salió en mediodía,
-    # bloquearlo también en tarde — un conductor no puede hacer 2 viajes de tarde.
-    VIAJE1_VIDS = {'DEMETRIO_PATINETA', 'EDWIN_MULA'}
-    unused_viaje1 = VIAJE1_VIDS - mediodia_vids - unavailable_vehicle_ids
-    tarde_orders  = _compute_tarde_demand(day_orders, mediodia_trips)
-    tarde_trips   = _optimize_phase(
-        tarde_orders,
-        unavailable_vehicle_ids=unavailable_vehicle_ids | mediodia_vids | unused_viaje1,
-        enable_combined_fill=True,
-        min_pallets=TARDE_MIN_PALLETS,
-    )
-    for t in tarde_trips:
-        t['hora'] = 'Tarde'
+    def _run_two_phase(mediodia_demand, zone_order=None):
+        """Fase mediodía con `mediodia_demand` + tarde con el resto."""
+        md = _optimize_phase(
+            mediodia_demand,
+            unavailable_vehicle_ids=unavailable_vehicle_ids | VIAJE2_VIDS,
+            enable_combined_fill=False,
+            zone_order=zone_order,
+        )
+        # Descartar mediodías con menos del 50%/60% de carga
+        md = [t for t in md if t.get('trip_type') != 'export'
+              or t.get('pallets_cargados', 0) >= _mediodia_min(t.get('capacidad', 24))]
+        for t in md:
+            t['hora'] = 'Mediodía'
 
-    # Filtro tarde: descartar viajes con menos de 5 pallets
-    # (remanentes mínimos — se consolidan al día siguiente).
-    tarde_trips = [t for t in tarde_trips
-                   if t.get('trip_type') != 'export'
-                   or t.get('pallets_cargados', 0) >= TARDE_MIN_PALLETS]
+        md_vids    = {t['vehicle_id'] for t in md}
+        unused_v1  = VIAJE1_VIDS - md_vids - unavailable_vehicle_ids
+        tarde_dem  = _compute_tarde_demand(day_orders, md)
+        td = _optimize_phase(
+            tarde_dem,
+            unavailable_vehicle_ids=unavailable_vehicle_ids | md_vids | unused_v1,
+            enable_combined_fill=True,
+            min_pallets=TARDE_MIN,
+            zone_order=zone_order,
+        )
+        td = [t for t in td if t.get('trip_type') != 'export'
+              or t.get('pallets_cargados', 0) >= TARDE_MIN]
+        for t in td:
+            t['hora'] = 'Tarde'
+        return md + td
 
-    return mediodia_trips + tarde_trips
+    def _run_tarde_only():
+        """Sin mediodía: VIAJE1 bloqueado, cada conductor solo 1 slot tarde."""
+        td = _optimize_phase(
+            day_orders,
+            unavailable_vehicle_ids=unavailable_vehicle_ids | VIAJE1_VIDS,
+            enable_combined_fill=True,
+            min_pallets=TARDE_MIN,
+        )
+        td = [t for t in td if t.get('trip_type') != 'export'
+              or t.get('pallets_cargados', 0) >= TARDE_MIN]
+        for t in td:
+            t['hora'] = 'Tarde'
+        return td
+
+    def _export_cost(trips):
+        return sum(t.get('costo', 0) for t in trips if t.get('trip_type') == 'export')
+
+    def _export_pallets(trips):
+        return sum(t.get('pallets_cargados', 0) for t in trips if t.get('trip_type') == 'export')
+
+    # Opción A: mediodía con caps operativos + tarde  (CHIGORODO primero)
+    opt_a = _run_two_phase(_cap_to_mediodia(day_orders))
+
+    # Opción B: mediodía sin caps (flexible) + tarde  (CHIGORODO primero)
+    opt_b = _run_two_phase(day_orders)
+
+    # Opción C: sin mediodía, todo tarde
+    opt_c = _run_tarde_only()
+
+    # Opción D: APARTADO primero + caps mediodía
+    # EDWIN → DF/Chispero (APARTADO $600k flat), JUANA PIO → YUBER
+    # DEMETRIO → SALVAMENTO/lotes pequeños APARTADO ($550k) antes que SAN BARTOLO
+    # Ganancia neta cuando ahorro APARTADO > extra en JUANA PIO.
+    opt_d = _run_two_phase(_cap_to_mediodia(day_orders), zone_order='APARTADO_FIRST')
+
+    # Opción E: APARTADO primero, mediodía sin caps
+    opt_e = _run_two_phase(day_orders, zone_order='APARTADO_FIRST')
+
+    # Elegir: tolerancia de 5P — si una opción es más barata y solo pierde ≤5P,
+    # esos pallets van a inter-day al día siguiente (suele ser más económico).
+    options   = [opt_a, opt_b, opt_c, opt_d, opt_e]
+    max_pals  = max(_export_pallets(o) for o in options)
+    PALLET_TOLERANCE = 5
+    best_opts = [o for o in options if _export_pallets(o) >= max_pals - PALLET_TOLERANCE]
+    return min(best_opts, key=_export_cost)
 
 
 def _day_metrics(day_orders, unavailable_vehicle_ids=None):
@@ -1040,6 +1241,53 @@ def compute_inter_day_moves(orders):
                                   'pallets': diff, 'cajas': extra_cajas,
                                   'reason': f'Sin enviar el {last_dia.title()} — se anticipan al {prev_dia.title()}'})
 
+    # Paso 1c: Segunda pasada sobre pedidos YA ajustados para capturar residuos en cascada
+    # Busca el PRIMER día futuro donde la finca tiene pedido (puede saltar días sin esa finca).
+    # Ej: DOÑA FRANCIA 2P Martes → salta MIERCOLES (sin DOÑA FRANCIA) → llega a VIERNES.
+    for i, dia in enumerate(dias):
+        adj_day_ord = adjusted.get(dia, {})
+        if not adj_day_ord:
+            continue
+        trips_adj   = optimize_day(adj_day_ord)
+        shipped_adj = {}
+        for t in trips_adj:
+            if t.get('trip_type') != 'export':
+                continue
+            port = t.get('destination', '')
+            for farm, fd in t['farms'].items():
+                shipped_adj[(farm, port)] = shipped_adj.get((farm, port), 0) + fd['pallets']
+        for farm, port_data in list(adj_day_ord.items()):
+            # Buscar el próximo día (en cualquier posición futura) que tenga esta finca
+            target_dia = None
+            for future_dia in dias[i + 1:]:
+                if farm in adjusted.get(future_dia, {}):
+                    target_dia = future_dia
+                    break
+            if target_dia is None:
+                continue  # No hay día futuro con esta finca — no se puede diferir
+            for port, data in list(port_data.items()):
+                diff = data['pallets'] - shipped_adj.get((farm, port), 0)
+                if diff <= 0:
+                    continue
+                ratio       = diff / data['pallets'] if data['pallets'] > 0 else 0
+                extra_cajas = max(1, int(round(ratio * data['cajas'])))
+                adjusted[dia][farm][port]['pallets'] -= diff
+                adjusted[dia][farm][port]['cajas']    = max(0,
+                    adjusted[dia][farm][port]['cajas'] - extra_cajas)
+                if adjusted[dia][farm][port]['pallets'] <= 0:
+                    adjusted[dia][farm].pop(port, None)
+                if not adjusted[dia].get(farm):
+                    adjusted[dia].pop(farm, None)
+                if port not in adjusted[target_dia].get(farm, {}):
+                    adjusted[target_dia].setdefault(farm, {})[port] = {
+                        'pallets': 0, 'cajas': 0, 'pallets_by_size': {}}
+                adjusted[target_dia][farm][port]['pallets'] += diff
+                adjusted[target_dia][farm][port]['cajas']   += extra_cajas
+                moves.append({'type': 'diferimiento', 'farm': farm,
+                              'from_day': dia, 'to_day': target_dia,
+                              'pallets': diff, 'cajas': extra_cajas,
+                              'reason': f'Residuo en cascada del {dia.title()} — se pasan al {target_dia.title()}'})
+
     # Paso 2: Anticipaciones
     for i, dia in enumerate(dias[:-1]):
         next_dia = dias[i + 1]
@@ -1067,6 +1315,133 @@ def compute_inter_day_moves(orders):
                               'from_day': next_dia, 'to_day': dia,
                               'pallets': p, 'cajas': c,
                               'reason': f'Solo {p}P solos en {next_dia.title()} — se adelantan a {dia.title()}'})
+
+    # ── Paso 3: Diferimiento deliberado (hill-climbing) ─────────────────
+    # Intenta mover N pallets de la finca F del día D al día D+1
+    # si reduce el costo total de ambos días. Restricciones:
+    #   1. El día D debe seguir enviando TODOS sus pallets restantes.
+    #   2. El día D+1 también debe poder enviar TODOS sus pallets.
+    #   3. Máximo MAX_TRANSFER pallets por finca en cada par de días.
+    # Esto evita sobrecargar un día y dejar pallets sin despachar.
+    import copy as _copy2
+
+    MAX_TRANSFER    = 12   # máximo pallets a mover por finca/día-par
+    MAX_ITER_DD     = 2    # pasadas máximas
+
+    def _day_result(day_orders_dict):
+        """Retorna (pallets_enviados, costo_export) para un día."""
+        if not day_orders_dict:
+            return 0, 0
+        ts = optimize_day(day_orders_dict)
+        exp = [t for t in ts if t.get('trip_type') == 'export']
+        return (sum(t['pallets_cargados'] for t in exp),
+                sum(t['costo']           for t in exp))
+
+    def _demand(day_orders_dict):
+        return sum(d.get('pallets', 0)
+                   for fd in day_orders_dict.values()
+                   for d in fd.values())
+
+    for _pass in range(MAX_ITER_DD):
+        _improved = False
+        for i in range(len(dias) - 1):
+            dia      = dias[i]
+            next_dia = dias[i + 1]
+            adj_dia  = adjusted.get(dia, {})
+            adj_nxt  = adjusted.get(next_dia, {})
+            if not adj_dia or not adj_nxt:
+                continue
+
+            common_farms = [f for f in adj_dia if f in adj_nxt]
+            if not common_farms:
+                continue
+
+            _ship_d, _cost_d = _day_result(adj_dia)
+            _ship_n, _cost_n = _day_result(adj_nxt)
+            # Si alguno ya no envía todo, no tocar este par
+            if _ship_d < _demand(adj_dia) or _ship_n < _demand(adj_nxt):
+                continue
+            base_cost = _cost_d + _cost_n
+
+            for farm in common_farms:
+                for port, pdata in list(adjusted.get(dia, {}).get(farm, {}).items()):
+                    total_p = pdata.get('pallets', 0)
+                    total_c = pdata.get('cajas', 0)
+                    if total_p <= 0:
+                        continue
+
+                    best_n    = 0
+                    best_cost = base_cost
+                    cap_n     = min(total_p, MAX_TRANSFER)
+
+                    for n in range(1, cap_n + 1):
+                        ratio   = n / total_p if total_p > 0 else 0
+                        n_cajas = max(1, int(round(ratio * total_c)))
+
+                        _adj_d = _copy2.deepcopy(adjusted.get(dia, {}))
+                        _adj_n = _copy2.deepcopy(adjusted.get(next_dia, {}))
+
+                        # Restar del día D
+                        _adj_d[farm][port]['pallets'] -= n
+                        _adj_d[farm][port]['cajas']    = max(0,
+                            _adj_d[farm][port]['cajas'] - n_cajas)
+                        if _adj_d[farm][port]['pallets'] <= 0:
+                            _adj_d[farm].pop(port, None)
+                        if not _adj_d.get(farm):
+                            _adj_d.pop(farm, None)
+
+                        # Sumar al día D+1
+                        if port not in _adj_n.get(farm, {}):
+                            _adj_n.setdefault(farm, {})[port] = {
+                                'pallets': 0, 'cajas': 0, 'pallets_by_size': {}}
+                        _adj_n[farm][port]['pallets'] += n
+                        _adj_n[farm][port]['cajas']   += n_cajas
+
+                        # Validar: ambos días envían TODA su demanda
+                        _sh_d, _co_d = _day_result(_adj_d)
+                        _sh_n, _co_n = _day_result(_adj_n)
+                        dem_d = _demand(_adj_d)
+                        dem_n = _demand(_adj_n)
+                        if _sh_d < dem_d or _sh_n < dem_n:
+                            continue  # no envía todo → rechazar
+
+                        new_cost = _co_d + _co_n
+                        if new_cost < best_cost:
+                            best_cost = new_cost
+                            best_n    = n
+
+                    if best_n > 0:
+                        ratio   = best_n / total_p if total_p > 0 else 0
+                        n_cajas = max(1, int(round(ratio * total_c)))
+                        adjusted[dia][farm][port]['pallets'] -= best_n
+                        adjusted[dia][farm][port]['cajas']    = max(0,
+                            adjusted[dia][farm][port]['cajas'] - n_cajas)
+                        if adjusted[dia][farm][port]['pallets'] <= 0:
+                            adjusted[dia][farm].pop(port, None)
+                        if not adjusted[dia].get(farm):
+                            adjusted[dia].pop(farm, None)
+                        if port not in adjusted[next_dia].get(farm, {}):
+                            adjusted[next_dia].setdefault(farm, {})[port] = {
+                                'pallets': 0, 'cajas': 0, 'pallets_by_size': {}}
+                        adjusted[next_dia][farm][port]['pallets'] += best_n
+                        adjusted[next_dia][farm][port]['cajas']   += n_cajas
+                        moves.append({
+                            'type':      'diferimiento_deliberado',
+                            'farm':      farm,
+                            'farm_name': farm,
+                            'from_day':  dia,
+                            'to_day':    next_dia,
+                            'pallets':   best_n,
+                            'cajas':     n_cajas,
+                            'ahorro':    base_cost - best_cost,
+                            'reason':    (f'Diferimiento deliberado: {best_n}P de {farm} '
+                                         f'{dia.title()}→{next_dia.title()} '
+                                         f'ahorra ${base_cost - best_cost:,}'),
+                        })
+                        base_cost = best_cost
+                        _improved = True
+        if not _improved:
+            break
 
     return adjusted, moves
 
@@ -1623,7 +1998,6 @@ def generate_excel_bytes(orders, semana_num, unavailable_vehicle_ids_by_day=None
         grand['pallets'] += sum(t['pallets_cargados'] for t in export_trips)
         grand['viajes']  += len(export_trips)
 
-    # PLAN DE DESPACHO va primero (con ajustes inter-día)
     adjusted_orders_plan, inter_day_moves_plan = compute_inter_day_moves(orders)
     write_suggested_pedido_sheet(
         wb, orders, adjusted_orders_plan, inter_day_moves_plan,
@@ -1674,11 +2048,4 @@ def generate_excel_bytes(orders, semana_num, unavailable_vehicle_ids_by_day=None
 
     buf = io.BytesIO()
     wb.save(buf)
-    buf.seek(0)
-    summary = {
-        'cost':    grand['cost'],
-        'cajas':   grand['cajas'],
-        'pallets': grand['pallets'],
-        'viajes':  grand['viajes'],
-    }
-    return buf.read(), summary
+    return buf.getvalue(), grand
