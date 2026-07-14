@@ -1540,7 +1540,8 @@ def _compute_original_plan(orders, sorted_days,
         all_trips = optimize_day(today, unavailable_vehicle_ids=unavail, relaxed=True, cap_mediodia=True)
         exp_trips = [t for t in all_trips if t.get('trip_type') == 'export']
 
-        final = []
+        final          = []
+        deferred_demand = {}   # farm → pallets diferidos hoy
         for t in exp_trips:
             pallets = t.get('pallets_cargados', 0)
             farms   = t.get('farms', {})
@@ -1552,8 +1553,37 @@ def _compute_original_plan(orders, sorted_days,
                 carry.setdefault(farm, {}).setdefault(port, {'pallets': 0, 'cajas': 0})
                 carry[farm][port]['pallets'] += pallets
                 carry[farm][port]['cajas']   += fd.get('cajas', 0)
+                deferred_demand[farm] = deferred_demand.get(farm, 0) + pallets
             else:
                 final.append(t)
+
+        # Si hubo diferidos, re-optimizar con la demanda reducida para que
+        # los vehículos liberados se reasignen de forma óptima (p.ej. DEMETRIO
+        # a Juana Pío en lugar de quedarse sin viaje tras diferir SB 9P).
+        if deferred_demand and not is_last:
+            reduced = copy.deepcopy(today)
+            for farm, def_p in deferred_demand.items():
+                for port in list(reduced.get(farm, {}).keys()):
+                    reduced[farm][port]['pallets'] = max(
+                        0, reduced[farm][port]['pallets'] - def_p
+                    )
+                    if reduced[farm][port]['pallets'] == 0:
+                        del reduced[farm][port]
+                if not reduced.get(farm):
+                    reduced.pop(farm, None)
+            has_demand = any(
+                d.get('pallets', 0) > 0
+                for farm_data in reduced.values()
+                for d in farm_data.values()
+            )
+            if has_demand:
+                re_trips = optimize_day(
+                    reduced,
+                    unavailable_vehicle_ids=unavail,
+                    relaxed=True,
+                    cap_mediodia=True,
+                )
+                final = [t for t in re_trips if t.get('trip_type') == 'export']
 
         if final:
             day_trips[day] = final
