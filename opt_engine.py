@@ -1492,11 +1492,78 @@ def compute_inter_day_moves(orders):
     return adjusted, moves
 
 
+
+# ── Plan original con carry-forward de residuos pequeños ─────────────────────
+# Cuando una finca tiene menos de _MIN_DISPATCH_ORIG pallets solos en un viaje,
+# no se despacha ese día — esos pallets se suman al día siguiente.
+# Esto evita escenarios irreales como DEMETRIO con 1 pallet.
+_MIN_DISPATCH_ORIG = 5
+
+def _merge_carry(base_orders, carry):
+    """Añade pallets de carry-forward al pedido del siguiente día."""
+    merged = copy.deepcopy(base_orders)
+    for farm, ports in carry.items():
+        merged.setdefault(farm, {})
+        for port, data in ports.items():
+            merged[farm].setdefault(port, {'pallets': 0, 'cajas': 0, 'pallets_by_size': {}})
+            merged[farm][port]['pallets'] += data.get('pallets', 0)
+            merged[farm][port]['cajas']   += data.get('cajas', 0)
+    return merged
+
+
+def _compute_original_plan(orders, sorted_days,
+                            unavailable_vehicle_ids_by_day=None,
+                            min_dispatch=None):
+    """
+    Plan original día a día con carry-forward de residuos pequeños.
+    Viajes solo con < min_dispatch pallets no se despachan ese día —
+    sus pallets pasan al día siguiente.
+    Retorna {day: [export_trips]}.
+    """
+    if unavailable_vehicle_ids_by_day is None:
+        unavailable_vehicle_ids_by_day = {}
+    if min_dispatch is None:
+        min_dispatch = _MIN_DISPATCH_ORIG
+
+    day_trips = {}
+    carry     = {}
+
+    for idx, day in enumerate(sorted_days):
+        is_last = (idx == len(sorted_days) - 1)
+        today   = _merge_carry(orders.get(day, {}), carry)
+        carry   = {}
+
+        unavail   = unavailable_vehicle_ids_by_day.get(day, set())
+        all_trips = optimize_day(today, unavailable_vehicle_ids=unavail, relaxed=True)
+        exp_trips = [t for t in all_trips if t.get('trip_type') == 'export']
+
+        final = []
+        for t in exp_trips:
+            pallets = t.get('pallets_cargados', 0)
+            farms   = t.get('farms', {})
+            # Viaje solo (1 finca) con pallets menores al umbral → diferir
+            if not is_last and len(farms) == 1 and 0 < pallets < min_dispatch:
+                farm = next(iter(farms))
+                fd   = farms[farm]
+                port = next(iter(today.get(farm, {}).keys()), 'PUERTO ANTIOQUIA')
+                carry.setdefault(farm, {}).setdefault(port, {'pallets': 0, 'cajas': 0})
+                carry[farm][port]['pallets'] += pallets
+                carry[farm][port]['cajas']   += fd.get('cajas', 0)
+            else:
+                final.append(t)
+
+        if final:
+            day_trips[day] = final
+
+    return day_trips
+
+
 def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
                                  semana_num, unavailable_vehicle_ids_by_day=None,
                                  sheet_name='PLAN DE DESPACHO',
                                  sheet_title=None,
-                                 relaxed=False):
+                                 relaxed=False,
+                                 precomputed_trips=None):
     """Hoja PLAN DE DESPACHO o PLAN DESPACHO ORIGINAL: resumen ejecutivo."""
     if unavailable_vehicle_ids_by_day is None:
         unavailable_vehicle_ids_by_day = {}
@@ -1685,8 +1752,11 @@ def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
         for ri, dia in enumerate(dias):
             unavail = unavailable_vehicle_ids_by_day.get(dia,set())
             a_ord   = adjusted_orders.get(dia,{})
-            a_exp   = ([t for t in optimize_day(a_ord, unavailable_vehicle_ids=unavail, relaxed=relaxed)
-                        if t.get('trip_type')=='export'] if a_ord else [])
+            if precomputed_trips is not None:
+                a_exp = precomputed_trips.get(dia, [])
+            else:
+                a_exp = ([t for t in optimize_day(a_ord, unavailable_vehicle_ids=unavail, relaxed=relaxed)
+                          if t.get('trip_type')=='export'] if a_ord else [])
             av=len(a_exp); ac=int(sum(sum(f['cajas'] for f in t['farms'].values()) for t in a_exp))
             ap=int(sum(t['pallets_cargados'] for t in a_exp)); aco=int(sum(t['costo'] for t in a_exp))
             bg = ALT[ri%2]
@@ -1722,8 +1792,11 @@ def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
     for dia in dias:
         unavail = unavailable_vehicle_ids_by_day.get(dia,set())
         a_ord   = adjusted_orders.get(dia,{})
-        a_trips = ([t for t in optimize_day(a_ord, unavailable_vehicle_ids=unavail, relaxed=relaxed)
-                    if t.get('trip_type')=='export'] if a_ord else [])
+        if precomputed_trips is not None:
+            a_trips = precomputed_trips.get(dia, [])
+        else:
+            a_trips = ([t for t in optimize_day(a_ord, unavailable_vehicle_ids=unavail, relaxed=relaxed)
+                        if t.get('trip_type')=='export'] if a_ord else [])
 
         ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=NCOLS)
         cf(ws.cell(row,1),
@@ -2056,13 +2129,17 @@ def generate_excel_bytes(orders, semana_num, unavailable_vehicle_ids_by_day=None
         del wb[default_name]
 
     # PLAN DESPACHO ORIGINAL — sin mover pallets entre días (Plan B)
-    # relaxed=True para despachar exactamente lo que pide el proveedor por día
+    # Usa carry-forward: residuos < _MIN_DISPATCH_ORIG pallets pasan al día siguiente
+    orig_plan_trips = _compute_original_plan(
+        orders, sorted_days, unavailable_vehicle_ids_by_day
+    )
     write_suggested_pedido_sheet(
         wb, orders, orders, [],
         semana_num, unavailable_vehicle_ids_by_day,
         sheet_name='PLAN DESPACHO ORIGINAL',
         sheet_title='PLAN DESPACHO ORIGINAL',
         relaxed=True,
+        precomputed_trips=orig_plan_trips,
     )
 
     # Build per-day movement index for write_day_sheet headers
