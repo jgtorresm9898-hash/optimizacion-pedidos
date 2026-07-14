@@ -926,7 +926,7 @@ def _compute_tarde_demand(day_orders, mediodia_trips):
 
 
 # ── Optimizacion diaria (tres opciones: elige la más barata) ────────
-def optimize_day(day_orders, unavailable_vehicle_ids=None, relaxed=False):
+def optimize_day(day_orders, unavailable_vehicle_ids=None, relaxed=False, cap_mediodia=False):
     """
     Evalúa 3 estrategias de despacho y elige la de menor costo:
       A) Mediodía con caps operativos (FARM_MEDIODIA_MAX) + tarde
@@ -1002,9 +1002,6 @@ def optimize_day(day_orders, unavailable_vehicle_ids=None, relaxed=False):
     # Opción A: mediodía con caps operativos + tarde  (CHIGORODO primero)
     opt_a = _run_two_phase(_cap_to_mediodia(day_orders))
 
-    # Opción B: mediodía sin caps (flexible) + tarde  (CHIGORODO primero)
-    opt_b = _run_two_phase(day_orders)
-
     # Opción C: sin mediodía, todo tarde
     opt_c = _run_tarde_only()
 
@@ -1014,12 +1011,18 @@ def optimize_day(day_orders, unavailable_vehicle_ids=None, relaxed=False):
     # Ganancia neta cuando ahorro APARTADO > extra en JUANA PIO.
     opt_d = _run_two_phase(_cap_to_mediodia(day_orders), zone_order='APARTADO_FIRST')
 
-    # Opción E: APARTADO primero, mediodía sin caps
-    opt_e = _run_two_phase(day_orders, zone_order='APARTADO_FIRST')
+    if cap_mediodia:
+        # Excluir B y E (mediodía sin caps): físicamente imposible superar FARM_MEDIODIA_MAX
+        options = [opt_a, opt_c, opt_d]
+    else:
+        # Opción B: mediodía sin caps (flexible) + tarde  (CHIGORODO primero)
+        opt_b = _run_two_phase(day_orders)
+        # Opción E: APARTADO primero, mediodía sin caps
+        opt_e = _run_two_phase(day_orders, zone_order='APARTADO_FIRST')
+        options = [opt_a, opt_b, opt_c, opt_d, opt_e]
 
     # Elegir: tolerancia de 5P — si una opción es más barata y solo pierde ≤5P,
     # esos pallets van a inter-day al día siguiente (suele ser más económico).
-    options   = [opt_a, opt_b, opt_c, opt_d, opt_e]
     max_pals  = max(_export_pallets(o) for o in options)
     PALLET_TOLERANCE = 5
     best_opts = [o for o in options if _export_pallets(o) >= max_pals - PALLET_TOLERANCE]
@@ -1534,7 +1537,7 @@ def _compute_original_plan(orders, sorted_days,
         carry   = {}
 
         unavail   = unavailable_vehicle_ids_by_day.get(day, set())
-        all_trips = optimize_day(today, unavailable_vehicle_ids=unavail, relaxed=True)
+        all_trips = optimize_day(today, unavailable_vehicle_ids=unavail, relaxed=True, cap_mediodia=True)
         exp_trips = [t for t in all_trips if t.get('trip_type') == 'export']
 
         final = []
