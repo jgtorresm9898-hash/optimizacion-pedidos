@@ -956,7 +956,8 @@ def optimize_day(day_orders, unavailable_vehicle_ids=None, relaxed=False):
         )
         # Descartar mediodías con menos del 50%/60% de carga
         md = [t for t in md if t.get('trip_type') != 'export'
-              or t.get('pallets_cargados', 0) >= _mediodia_min(t.get('capacidad', 24))]
+              or (t.get('pallets_cargados', 0) > 0
+                  and t.get('pallets_cargados', 0) >= _mediodia_min(t.get('capacidad', 24)))]
         for t in md:
             t['hora'] = 'Mediodía'
 
@@ -971,7 +972,8 @@ def optimize_day(day_orders, unavailable_vehicle_ids=None, relaxed=False):
             zone_order=zone_order,
         )
         td = [t for t in td if t.get('trip_type') != 'export'
-              or t.get('pallets_cargados', 0) >= TARDE_MIN]
+              or (t.get('pallets_cargados', 0) > 0
+                  and t.get('pallets_cargados', 0) >= TARDE_MIN)]
         for t in td:
             t['hora'] = 'Tarde'
         return md + td
@@ -985,7 +987,8 @@ def optimize_day(day_orders, unavailable_vehicle_ids=None, relaxed=False):
             min_pallets=TARDE_MIN,
         )
         td = [t for t in td if t.get('trip_type') != 'export'
-              or t.get('pallets_cargados', 0) >= TARDE_MIN]
+              or (t.get('pallets_cargados', 0) > 0
+                  and t.get('pallets_cargados', 0) >= TARDE_MIN)]
         for t in td:
             t['hora'] = 'Tarde'
         return td
