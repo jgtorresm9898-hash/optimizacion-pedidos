@@ -1596,7 +1596,8 @@ def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
                                  sheet_name='PLAN DE DESPACHO',
                                  sheet_title=None,
                                  relaxed=False,
-                                 precomputed_trips=None):
+                                 precomputed_trips=None,
+                                 orig_precomputed_trips=None):
     """Hoja PLAN DE DESPACHO o PLAN DESPACHO ORIGINAL: resumen ejecutivo."""
     if unavailable_vehicle_ids_by_day is None:
         unavailable_vehicle_ids_by_day = {}
@@ -1684,9 +1685,12 @@ def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
         grand_a = {'v':0,'c':0,'p':0,'co':0}
         for ri, dia in enumerate(dias):
             unavail = unavailable_vehicle_ids_by_day.get(dia, set())
-            o_exp = [t for t in optimize_day(orders_orig.get(dia,{}),
-                     unavailable_vehicle_ids=unavail, relaxed=True)
-                     if t.get('trip_type')=='export']
+            if orig_precomputed_trips is not None:
+                o_exp = orig_precomputed_trips.get(dia, [])
+            else:
+                o_exp = [t for t in optimize_day(orders_orig.get(dia,{}),
+                         unavailable_vehicle_ids=unavail, relaxed=True)
+                         if t.get('trip_type')=='export']
             a_ord = adjusted_orders.get(dia,{})
             a_exp = ([t for t in optimize_day(a_ord, unavailable_vehicle_ids=unavail)
                       if t.get('trip_type')=='export'] if a_ord else [])
@@ -2155,6 +2159,7 @@ def generate_excel_bytes(orders, semana_num, unavailable_vehicle_ids_by_day=None
         wb, orders, adjusted_orders_plan, inter_day_moves_plan,
         semana_num, unavailable_vehicle_ids_by_day,
         sheet_name='PLAN DE DESPACHO',
+        orig_precomputed_trips=orig_plan_trips,
     )
     # Eliminar la hoja vacía por defecto que crea openpyxl
     default_name = wb.sheetnames[0]
