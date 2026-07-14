@@ -2086,12 +2086,12 @@ def generate_excel_bytes(orders, semana_num, unavailable_vehicle_ids_by_day=None
     wb          = Workbook()
     sorted_days = sorted(orders.keys(),
                          key=lambda d: DAY_ORDER.index(d) if d in DAY_ORDER else 99)
-    day_results = {}
-    for day in sorted_days:
-        unavail = unavailable_vehicle_ids_by_day.get(day, set())
-        trips   = optimize_day(orders[day], unavailable_vehicle_ids=unavail, relaxed=True)
-        if trips:
-            day_results[day] = trips
+    # Plan original con carry-forward (reemplaza el loop relaxed=True directo)
+    # Se calcula una sola vez y se reutiliza en todas las hojas
+    orig_plan_trips = _compute_original_plan(
+        orders, sorted_days, unavailable_vehicle_ids_by_day
+    )
+    day_results = orig_plan_trips   # alias para compatibilidad con código posterior
     if not day_results:
         return None, {}
 
@@ -2128,11 +2128,7 @@ def generate_excel_bytes(orders, semana_num, unavailable_vehicle_ids_by_day=None
     if default_name != 'PLAN DE DESPACHO':
         del wb[default_name]
 
-    # PLAN DESPACHO ORIGINAL — sin mover pallets entre días (Plan B)
-    # Usa carry-forward: residuos < _MIN_DISPATCH_ORIG pallets pasan al día siguiente
-    orig_plan_trips = _compute_original_plan(
-        orders, sorted_days, unavailable_vehicle_ids_by_day
-    )
+    # PLAN DESPACHO ORIGINAL — orig_plan_trips ya calculado arriba
     write_suggested_pedido_sheet(
         wb, orders, orders, [],
         semana_num, unavailable_vehicle_ids_by_day,
