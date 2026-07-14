@@ -372,6 +372,20 @@ def assign_farms_to_trips(farm_pallets, farm_cajas, trips):
                     is_last_batch = (take >= rem_pallets)
                     if take < FILL_MIN_PALLETS and not is_last_batch:
                         continue
+                    # Cuarteo: finca nueva en viaje con otra finca debe
+                    # cumplir el mínimo siempre (sin excepción por is_last).
+                    if farm not in trip['farms'] and take < min_cuarteo:
+                        continue
+                    # Chequeo fincas existentes: si alguna finca ya en el viaje
+                    # está por debajo de su mínimo de cuarteo, no añadir más
+                    # fincas a ese viaje (evita mezclas inválidas).
+                    if farm not in trip['farms']:
+                        _existing_ok_a = all(
+                            trip['farms'][_ef]['pallets'] >= CUARTEO_MIN_PALLETS.get(_ef, CUARTEO_MIN_DEFAULT)
+                            for _ef in trip['farms']
+                        )
+                        if not _existing_ok_a:
+                            continue
                     # Evitar overage innecesario en camiones con tarifa variable.
                     # Si el fill supera los pallets negociados y no es el último
                     # lote de esta finca, limitar al espacio en tarifa plana.
@@ -383,6 +397,10 @@ def assign_farms_to_trips(farm_pallets, farm_cajas, trips):
                         if _farms_loaded + take > _pals_neg:
                             take = max(0, _pals_neg - _farms_loaded)
                             if take < FILL_MIN_PALLETS:
+                                continue
+                            # Re-chequear cuarteo con take ajustado: el overage puede
+                            # haber reducido take de >min (pasó el chequeo) a <min.
+                            if farm not in trip['farms'] and take < min_cuarteo:
                                 continue
                 else:
                     # Viaje vacío (primera finca): sí respetar mínimo de cuarteo.
@@ -449,9 +467,22 @@ def _combined_fill(chigorodo_trips, apart_route_data):
             # Fill Chigorodó→Apartadó: mismo criterio de fill libre.
             # Objetivo: llenar el camión al máximo con lo que haya disponible.
             # Solo rechazar fills absurdos de 1-2P.
-            FILL_MIN_PALLETS = 3
+            _cuarteo_min_cf = CUARTEO_MIN_PALLETS.get(farm, CUARTEO_MIN_DEFAULT)
             take_p = min(spare, fdata['pallets'])
-            if take_p < FILL_MIN_PALLETS:
+            # Si el viaje ya lleva otra finca, respetar cuarteo mínimo.
+            _new_farm_cf = farm not in trip.get('farms', {})
+            if trip.get('farms') and _new_farm_cf and take_p < _cuarteo_min_cf:
+                continue
+            # Chequeo fincas existentes: si alguna finca ya cargada está bajo
+            # su mínimo, no mezclar con otra finca nueva (evita cuarteo inválido).
+            if _new_farm_cf and trip.get('farms'):
+                _existing_ok_cf = all(
+                    trip['farms'][_ef]['pallets'] >= CUARTEO_MIN_PALLETS.get(_ef, CUARTEO_MIN_DEFAULT)
+                    for _ef in trip['farms']
+                )
+                if not _existing_ok_cf:
+                    continue
+            if take_p < 3:  # bloquear fills patológicos de 1-2P
                 continue
             # Cajas proporcionales (exactas si es el ultimo trozo)
             if take_p == fdata['pallets']:
@@ -653,8 +684,20 @@ def _optimize_phase(phase_orders, unavailable_vehicle_ids=None, enable_combined_
                     # y el take es menor que el mínimo requerido, solo permitir si
                     # es el último batch (todos los pallets restantes de la finca).
                     _already = _farm in _t.get('farms', {})
-                    if not _already and _take < _cuarteo_min and not _is_last:
+                    # Cuarteo estricto: finca nueva en viaje con otra finca
+                    # siempre debe cumplir el mínimo, sin importar si son
+                    # los últimos pallets disponibles de esa finca.
+                    if not _already and _take < _cuarteo_min:
                         continue
+                    # Chequeo fincas existentes: si alguna ya cargada está bajo
+                    # su mínimo de cuarteo, no añadir más fincas a ese viaje.
+                    if not _already and _t.get('farms', {}):
+                        _existing_ok_iz = all(
+                            _t['farms'][_ef]['pallets'] >= CUARTEO_MIN_PALLETS.get(_ef, CUARTEO_MIN_DEFAULT)
+                            for _ef in _t['farms']
+                        )
+                        if not _existing_ok_iz:
+                            continue
                     if _take < 2:  # Evitar fills de 1P que luego se eliminarían
                         continue
                     _ratio = _take / _orig_p if _orig_p > 0 else 0
