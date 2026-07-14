@@ -1497,7 +1497,7 @@ def compute_inter_day_moves(orders):
 # Cuando una finca tiene menos de _MIN_DISPATCH_ORIG pallets solos en un viaje,
 # no se despacha ese día — esos pallets se suman al día siguiente.
 # Esto evita escenarios irreales como DEMETRIO con 1 pallet.
-_MIN_DISPATCH_ORIG = 5
+_MIN_DISPATCH_ORIG = 10  # mínimo realista: < 10P solo → difiere al día siguiente
 
 def _merge_carry(base_orders, carry):
     """Añade pallets de carry-forward al pedido del siguiente día."""
