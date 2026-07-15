@@ -2137,19 +2137,25 @@ def generate_excel_bytes(orders, semana_num, unavailable_vehicle_ids_by_day=None
                          key=lambda d: DAY_ORDER.index(d) if d in DAY_ORDER else 99)
     # Plan original por día (sin carry-forward): cada día despacha exactamente
     # lo pedido ese día. Se usa en PLAN DESPACHO ORIGINAL y hojas de día.
-    # PLAN DESPACHO ORIGINAL: plan naïve día a día sin cap de mediodía,
-    # para que los totales de pallets coincidan exactamente con el pedido.
-    orig_plan_trips = {}
+    # orig_naive_trips: plan naïve por día (sin carry-forward, sin cap_mediodia)
+    # → columna PEDIDO ORIGINAL en PLAN DE DESPACHO: pallets = exactamente lo pedido
+    orig_naive_trips = {}
     for _day in sorted_days:
         _unavail = unavailable_vehicle_ids_by_day.get(_day, set())
         _day_ord = orders.get(_day, {})
         if _day_ord:
-            _trips = optimize_day(_day_ord, unavailable_vehicle_ids=_unavail,
-                                  relaxed=True)   # cap_mediodia=False: despacha todo
+            _trips = optimize_day(_day_ord, unavailable_vehicle_ids=_unavail, relaxed=True)
             _exp   = [t for t in _trips if t.get('trip_type') == 'export']
             if _exp:
-                orig_plan_trips[_day] = _exp
-    day_results = orig_plan_trips   # alias para compatibilidad con código posterior
+                orig_naive_trips[_day] = _exp
+
+    # orig_carry_trips: plan realista con carry-forward (cap_mediodia=True)
+    # → PLAN DESPACHO ORIGINAL (detalle de viajes) y hojas de día individuales
+    orig_carry_trips = _compute_original_plan(
+        orders, sorted_days, unavailable_vehicle_ids_by_day
+    )
+    orig_plan_trips = orig_carry_trips   # alias
+    day_results     = orig_carry_trips   # alias para compatibilidad con código posterior
     if not day_results:
         return None, {}
 
@@ -2180,6 +2186,7 @@ def generate_excel_bytes(orders, semana_num, unavailable_vehicle_ids_by_day=None
         wb, orders, adjusted_orders_plan, inter_day_moves_plan,
         semana_num, unavailable_vehicle_ids_by_day,
         sheet_name='PLAN DE DESPACHO',
+        orig_precomputed_trips=orig_naive_trips,
     )
     # Eliminar la hoja vacía por defecto que crea openpyxl
     default_name = wb.sheetnames[0]
