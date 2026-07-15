@@ -2135,11 +2135,20 @@ def generate_excel_bytes(orders, semana_num, unavailable_vehicle_ids_by_day=None
     wb          = Workbook()
     sorted_days = sorted(orders.keys(),
                          key=lambda d: DAY_ORDER.index(d) if d in DAY_ORDER else 99)
-    # Plan original con carry-forward (reemplaza el loop relaxed=True directo)
-    # Se calcula una sola vez y se reutiliza en todas las hojas
-    orig_plan_trips = _compute_original_plan(
-        orders, sorted_days, unavailable_vehicle_ids_by_day
-    )
+    # Plan original por día (sin carry-forward): cada día despacha exactamente
+    # lo pedido ese día. Se usa en PLAN DESPACHO ORIGINAL y hojas de día.
+    # PLAN DESPACHO ORIGINAL: plan naïve día a día sin cap de mediodía,
+    # para que los totales de pallets coincidan exactamente con el pedido.
+    orig_plan_trips = {}
+    for _day in sorted_days:
+        _unavail = unavailable_vehicle_ids_by_day.get(_day, set())
+        _day_ord = orders.get(_day, {})
+        if _day_ord:
+            _trips = optimize_day(_day_ord, unavailable_vehicle_ids=_unavail,
+                                  relaxed=True)   # cap_mediodia=False: despacha todo
+            _exp   = [t for t in _trips if t.get('trip_type') == 'export']
+            if _exp:
+                orig_plan_trips[_day] = _exp
     day_results = orig_plan_trips   # alias para compatibilidad con código posterior
     if not day_results:
         return None, {}
