@@ -1694,6 +1694,9 @@ def write_suggested_pedido_sheet(wb, orders_orig, adjusted_orders, moves,
         grand_a = {'v':0,'c':0,'p':0,'co':0}
         for ri, dia in enumerate(dias):
             unavail = unavailable_vehicle_ids_by_day.get(dia, set())
+            # PEDIDO ORIGINAL: despacho naïve día a día (sin carry-forward).
+            # No aplica cap_mediodia para que el total de pallets coincida
+            # exactamente con lo pedido cada día.
             if orig_precomputed_trips is not None:
                 o_exp = orig_precomputed_trips.get(dia, [])
             else:
@@ -2168,7 +2171,6 @@ def generate_excel_bytes(orders, semana_num, unavailable_vehicle_ids_by_day=None
         wb, orders, adjusted_orders_plan, inter_day_moves_plan,
         semana_num, unavailable_vehicle_ids_by_day,
         sheet_name='PLAN DE DESPACHO',
-        orig_precomputed_trips=orig_plan_trips,
     )
     # Eliminar la hoja vacía por defecto que crea openpyxl
     default_name = wb.sheetnames[0]
