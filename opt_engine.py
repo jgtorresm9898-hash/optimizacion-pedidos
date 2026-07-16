@@ -2268,7 +2268,9 @@ def generate_excel_bytes(orders, semana_num, unavailable_vehicle_ids_by_day=None
     for day in sorted_days:
         if day not in day_results and day not in sug_day_results:
             continue
-        orig_t = day_results.get(day, [])
+        # Hojas de día: "PEDIDO BANAFRUT — Sin modificaciones" usa orig_naive_trips
+        # (sin carry-forward) para mostrar exactamente lo pedido ese día.
+        orig_t = orig_naive_trips.get(day, day_results.get(day, []))
         sug_t  = sug_day_results.get(day, [])
         orig_fp = _farm_totals(orders.get(day, {}))
         sug_fp  = _farm_totals(adjusted_orders_gen.get(day, {}))
