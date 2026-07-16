@@ -315,6 +315,52 @@ def recalculate_variable_costs(trips):
     return trips
 
 
+def _rebalance_tiny_trips(trips, min_load=9):
+    """Post-procesa la lista de viajes de un día: si un viaje de una sola finca
+    tiene pallets < min_load, transfiere pallets del viaje 'hermano' a la misma finca
+    hasta que ambos alcancen min_load. Escala cajas proporcionalmente y
+    recalcula costos variables (Yuber). Esto elimina residuos como 1P/5P
+    sin cambiar el total de pallets despachados en el día."""
+    import copy
+    trips = [copy.deepcopy(t) for t in trips]
+
+    changed = True
+    while changed:
+        changed = False
+        for i in range(len(trips)):
+            p     = trips[i].get('pallets_cargados', 0)
+            farms = trips[i].get('farms', {})
+            if p < min_load and len(farms) == 1 and p > 0:
+                farm = next(iter(farms))
+                for j in range(len(trips)):
+                    if i == j:
+                        continue
+                    o_farms = trips[j].get('farms', {})
+                    if farm not in o_farms or len(o_farms) != 1:
+                        continue
+                    o_p    = trips[j].get('pallets_cargados', 0)
+                    needed = min_load - p          # pallets to take from j
+                    if o_p - needed >= min_load:   # donor stays viable
+                        new_p   = p   + needed
+                        new_o_p = o_p - needed
+                        # Scale cajas proportionally
+                        fd_i = trips[i]['farms'][farm]
+                        fd_j = trips[j]['farms'][farm]
+                        if fd_i.get('cajas', 0) and p > 0:
+                            fd_i['cajas'] = round(fd_i['cajas'] * new_p / p)
+                        if fd_j.get('cajas', 0) and o_p > 0:
+                            fd_j['cajas'] = round(fd_j['cajas'] * new_o_p / o_p)
+                        fd_i['pallets']              = new_p
+                        trips[i]['pallets_cargados'] = new_p
+                        fd_j['pallets']              = new_o_p
+                        trips[j]['pallets_cargados'] = new_o_p
+                        changed = True
+                        break
+
+    recalculate_variable_costs(trips)
+    return trips
+
+
 # ── Etiqueta de pallets por talla ─────────────────────────────
 def pallet_size_label(assigned_int_pallets, farm_total_pallets, pallets_by_size):
     if not pallets_by_size or farm_total_pallets <= 0:
@@ -2146,6 +2192,7 @@ def generate_excel_bytes(orders, semana_num, unavailable_vehicle_ids_by_day=None
         if _day_ord:
             _trips = optimize_day(_day_ord, unavailable_vehicle_ids=_unavail, relaxed=True)
             _exp   = [t for t in _trips if t.get('trip_type') == 'export']
+            _exp   = _rebalance_tiny_trips(_exp)  # eliminar residuos < 9P
             if _exp:
                 orig_naive_trips[_day] = _exp
 
@@ -2193,14 +2240,15 @@ def generate_excel_bytes(orders, semana_num, unavailable_vehicle_ids_by_day=None
     if default_name != 'PLAN DE DESPACHO':
         del wb[default_name]
 
-    # PLAN DESPACHO ORIGINAL — orig_plan_trips ya calculado arriba
+    # PLAN DESPACHO ORIGINAL — usa orig_naive_trips (sin carry-forward)
+    # para que cada día muestre exactamente los pallets del pedido original.
     write_suggested_pedido_sheet(
         wb, orders, orders, [],
         semana_num, unavailable_vehicle_ids_by_day,
         sheet_name='PLAN DESPACHO ORIGINAL',
         sheet_title='PLAN DESPACHO ORIGINAL',
         relaxed=True,
-        precomputed_trips=orig_plan_trips,
+        precomputed_trips=orig_naive_trips,
     )
 
     # Build per-day movement index for write_day_sheet headers
