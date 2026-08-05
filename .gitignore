@@ -1,2 +1,9 @@
 __pycache__/
 *.pyc
+
+# Archivos de trabajo locales (pedidos, rutas, no van al repo)
+*.xlsx
+*.docx
+*.pdf
+OPTIMIZACION SEMANAL/
+opt_engine.py
