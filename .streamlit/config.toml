@@ -1,4 +1,4 @@
-toml[theme]
+[theme]
 primaryColor = "#2e7d32"
 backgroundColor = "#ffffff"
 secondaryBackgroundColor = "#f8f9fa"
