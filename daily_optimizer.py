@@ -14,10 +14,9 @@ Logica validada con el usuario (julio 2026):
     Yuber:    $630.000 hasta 20P, +$25.000 por pallet adicional, tope 26P.
     Demetrio: $550.000 fijo, tope 18P.
     Edwin:    $600.000 fijo, tope 24P (no Santa Maria).
-- Cuarteo (combinar 2+ fincas en un viaje) en el grupo barato exige minimo
-  8 pallets para Santa Maria, 12 para las demas. En el grupo caro no aplica
-  minimo (confirmado con caso real: San Bartolo con 6-7P combinado con
-  Juana Pio salio mas barato).
+- Cuarteo (combinar 2+ fincas en un viaje): sin minimo de pallets por finca
+  en ningun grupo (regla de minimo 8P/12P eliminada en agosto 2026 — el
+  optimizador puede combinar cualquier cantidad si sale mas barato).
 - Demetrio: maximo 2 viajes/dia, COMPARTIDOS entre ambos grupos (1 camion).
 - Edwin: maximo 2 viajes/dia, solo aplica al grupo barato (1 camion).
 """
@@ -34,8 +33,6 @@ DEMETRIO_B_COST = 550_000
 EDWIN_B_COST = 600_000
 
 EDWIN_EXCLUDED_B = {'SANTA MARIA'}
-CUARTEO_MIN_B = {'SANTA MARIA': 8}
-CUARTEO_MIN_DEFAULT_B = 12
 
 
 def yuber_A(n):
@@ -108,86 +105,82 @@ def _partitions(collection):
         yield [[first]] + smaller
 
 
-def _cuarteo_ok_b(group, amounts):
-    if len(group) <= 1:
-        return True
-    for f in group:
-        mn = CUARTEO_MIN_B.get(f, CUARTEO_MIN_DEFAULT_B)
-        if amounts[f] < mn:
-            return False
-    return True
+def _farm_split_options(farm, amount):
+    """Formas de partir el pedido de una finca en 1 o 2 piezas que quepan
+    cada una en un camion (<=CAP_YUBER). Sin division si ya cabe entera.
+    Cada pieza queda disponible para combinarse con piezas de OTRAS fincas
+    (a diferencia de la version anterior, que solo dejaba combinar piezas
+    de fincas que ya cabian solas en un camion)."""
+    if amount <= CAP_YUBER:
+        return [[(farm, amount)]]
+    opts = []
+    for a in range(1, amount):
+        b = amount - a
+        if a <= CAP_YUBER and b <= CAP_YUBER:
+            opts.append([(farm, a), (farm, b)])
+    return opts
 
 
-def _group_options_b(group, amounts):
-    total = sum(amounts[f] for f in group)
-    if not _cuarteo_ok_b(group, amounts):
-        return []
+def _group_cost_options_pieces(idx_group, pieces):
+    farms_in_group = {pieces[i][0] for i in idx_group}
+    total = sum(pieces[i][1] for i in idx_group)
     opts = []
     if total <= CAP_YUBER:
         opts.append(('Yuber', yuber_B(total)))
     if total <= CAP_DEMETRIO:
         opts.append(('Demetrio', DEMETRIO_B_COST))
-    if total <= CAP_EDWIN and not (set(group) & EDWIN_EXCLUDED_B):
+    if total <= CAP_EDWIN and not (farms_in_group & EDWIN_EXCLUDED_B):
         opts.append(('Edwin', EDWIN_B_COST))
     return opts
 
 
-def _split_oversized_b(farm, amount):
-    candidates = []
-    for a in range(1, amount):
-        b = amount - a
-        if a > CAP_YUBER or b > CAP_YUBER:
-            continue
-        for ca, cca in _group_options_b([farm], {farm: a}):
-            for cb, ccb in _group_options_b([farm], {farm: b}):
-                dem = (ca == 'Demetrio') + (cb == 'Demetrio')
-                edw = (ca == 'Edwin') + (cb == 'Edwin')
-                candidates.append((cca + ccb, dem, edw,
-                                    [{'carrier': ca, 'total': a, 'farms': {farm: a}},
-                                     {'carrier': cb, 'total': b, 'farms': {farm: b}}]))
-    return candidates
-
-
 def _cell_combos_b(amounts):
+    """Devuelve, por cada combinacion (viajes de Demetrio, viajes de Edwin)
+    factible, el trip-set de menor costo. Se poda en el momento (en vez de
+    acumular todas las combinaciones) porque con varias fincas grandes a la
+    vez el numero de combinaciones crudas puede dispararse a decenas de
+    millones y agotar memoria."""
     farms = [f for f in amounts if amounts[f] > 0]
     if not farms:
         return [(0, 0, 0, [])]
-    oversized = [f for f in farms if amounts[f] > CAP_YUBER]
-    normal = [f for f in farms if amounts[f] <= CAP_YUBER]
-    oversized_choice_lists = [_split_oversized_b(f, amounts[f]) for f in oversized]
-    normal_partition_options = [(0, 0, 0, [])]
-    if normal:
-        normal_partition_options = []
-        for part in _partitions(normal):
+
+    split_choices = [_farm_split_options(f, amounts[f]) for f in farms]
+
+    best_by_key = {}
+    for split_combo in itertools.product(*split_choices):
+        pieces = [piece for group in split_combo for piece in group]
+        n = len(pieces)
+        for part in _partitions(list(range(n))):
             opts_per_group = []
             feasible = True
-            for group in part:
-                opts = _group_options_b(group, amounts)
+            for idx_group in part:
+                opts = _group_cost_options_pieces(idx_group, pieces)
                 if not opts:
                     feasible = False
                     break
-                opts_per_group.append((group, sum(amounts[f] for f in group), opts))
+                opts_per_group.append((idx_group, opts))
             if not feasible:
                 continue
-            choice_lists = [[(g, t, c, cost) for (c, cost) in opts] for (g, t, opts) in opts_per_group]
+            choice_lists = [[(g, c, cost) for (c, cost) in opts] for (g, opts) in opts_per_group]
             for combo in itertools.product(*choice_lists):
-                cost = sum(x[3] for x in combo)
-                dem = sum(1 for x in combo if x[2] == 'Demetrio')
-                edw = sum(1 for x in combo if x[2] == 'Edwin')
-                trips = [{'carrier': c, 'total': t, 'farms': {f: amounts[f] for f in g}}
-                         for (g, t, c, cost) in combo]
-                normal_partition_options.append((cost, dem, edw, trips))
-    combos = []
-    for over_combo in itertools.product(*oversized_choice_lists) if oversized_choice_lists else [()]:
-        over_cost = sum(x[0] for x in over_combo)
-        over_dem = sum(x[1] for x in over_combo)
-        over_edw = sum(x[2] for x in over_combo)
-        over_trips = []
-        for x in over_combo:
-            over_trips.extend(x[3])
-        for ncost, ndem, nedw, ntrips in normal_partition_options:
-            combos.append((over_cost + ncost, over_dem + ndem, over_edw + nedw, over_trips + ntrips))
-    return combos
+                dem = sum(1 for x in combo if x[1] == 'Demetrio')
+                edw = sum(1 for x in combo if x[1] == 'Edwin')
+                if dem > 2 or edw > 2:
+                    continue
+                cost = sum(x[2] for x in combo)
+                key = (dem, edw)
+                prev = best_by_key.get(key)
+                if prev is not None and cost >= prev[0]:
+                    continue
+                trips = []
+                for (idx_group, carrier, _tcost) in combo:
+                    farms_amt = {}
+                    for i in idx_group:
+                        f, sz = pieces[i]
+                        farms_amt[f] = farms_amt.get(f, 0) + sz
+                    trips.append({'carrier': carrier, 'total': sum(farms_amt.values()), 'farms': farms_amt})
+                best_by_key[key] = (cost, dem, edw, trips)
+    return list(best_by_key.values())
 
 
 def _prune_strict(combos):
