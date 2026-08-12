@@ -19,6 +19,10 @@ Logica validada con el usuario (julio 2026):
   optimizador puede combinar cualquier cantidad si sale mas barato).
 - Demetrio: maximo 2 viajes/dia, COMPARTIDOS entre ambos grupos (1 camion).
 - Edwin: maximo 2 viajes/dia, solo aplica al grupo barato (1 camion).
+- Edwin SI puede recoger Juana Pio (habilitado agosto 2026), a $1.050.000 fijo
+  (tarifa Chigorodo), tope 24P, y puede cuartear Juana Pio con fincas del
+  grupo barato (Dona Francia, Chispero, Salvamento) en el mismo viaje. Edwin
+  sigue SIN poder recoger San Bartolo ni Santa Maria.
 """
 import itertools
 
@@ -31,6 +35,7 @@ CAP_YUBER, CAP_DEMETRIO, CAP_EDWIN = 26, 18, 24
 DEMETRIO_A_COST = 850_000
 DEMETRIO_B_COST = 550_000
 EDWIN_B_COST = 600_000
+EDWIN_JP_COST = 1_050_000  # Edwin con Juana Pio (mezclada o no con grupo barato)
 
 EDWIN_EXCLUDED_B = {'SANTA MARIA'}
 
@@ -125,6 +130,13 @@ def _group_cost_options_pieces(idx_group, pieces):
     farms_in_group = {pieces[i][0] for i in idx_group}
     total = sum(pieces[i][1] for i in idx_group)
     opts = []
+    if 'JUANA PIO' in farms_in_group:
+        # Puente Juana Pio -> grupo barato: solo Edwin puede recogerla aqui,
+        # a su tarifa de Chigorodo, sola o cuarteada con fincas del grupo
+        # barato. Santa Maria sigue excluida (no se puede mezclar con Edwin).
+        if total <= CAP_EDWIN and not (farms_in_group & EDWIN_EXCLUDED_B):
+            opts.append(('Edwin', EDWIN_JP_COST))
+        return opts
     if total <= CAP_YUBER:
         opts.append(('Yuber', yuber_B(total)))
     if total <= CAP_DEMETRIO:
@@ -205,32 +217,41 @@ def optimize_day(pallets):
 
     sb_total = pallets['SAN BARTOLO']
     jp_total = pallets['JUANA PIO']
-    T_a = sb_total + jp_total
 
-    b_amounts = {f: pallets[f] for f in GROUP_B}
-    b_combos = _prune_strict(_cell_combos_b(b_amounts))
-    if not b_combos:
-        b_combos = [(0, 0, 0, [])]
-
+    # Juana Pio se puede repartir entre el grupo A (con San Bartolo, via
+    # Yuber/Demetrio) y el grupo B (via Edwin, sola o cuarteada con Dona
+    # Francia/Chispero/Salvamento). Se prueba cada reparto posible.
     best = None
-    for demA in [0, 1, 2]:
-        costA, tripsA_sizes = _best_group_a(T_a, demA)
-        for cb in b_combos:
-            demB, edwB = cb[1], cb[2]
-            if demA + demB <= 2 and edwB <= 2:
-                total = costA + cb[0]
-                if best is None or total < best[0]:
-                    best = (total, demA, tripsA_sizes, cb)
+    for jp_to_b in range(0, jp_total + 1):
+        jp_to_a = jp_total - jp_to_b
+        T_a = sb_total + jp_to_a
 
-    total_cost, demA, tripsA_sizes, cb = best
-    tripsA = _allocate_group_a(list(tripsA_sizes), sb_total, jp_total)
+        b_amounts = {f: pallets[f] for f in GROUP_B}
+        b_amounts['JUANA PIO'] = jp_to_b
+        b_combos = _prune_strict(_cell_combos_b(b_amounts))
+        if jp_to_b > 0 and not b_combos:
+            continue  # este reparto no es factible (p.ej. excede tope Edwin)
+        if not b_combos:
+            b_combos = [(0, 0, 0, [])]
+
+        for demA in [0, 1, 2]:
+            costA, tripsA_sizes = _best_group_a(T_a, demA)
+            for cb in b_combos:
+                demB, edwB = cb[1], cb[2]
+                if demA + demB <= 2 and edwB <= 2:
+                    total = costA + cb[0]
+                    if best is None or total < best[0]:
+                        best = (total, demA, tripsA_sizes, cb, jp_to_a)
+
+    total_cost, demA, tripsA_sizes, cb, jp_to_a = best
+    tripsA = _allocate_group_a(list(tripsA_sizes), sb_total, jp_to_a)
     tripsB = cb[3]
 
     def _trip_cost(t, is_group_a):
         if t['carrier'] == 'Demetrio':
             return DEMETRIO_A_COST if is_group_a else DEMETRIO_B_COST
         if t['carrier'] == 'Edwin':
-            return EDWIN_B_COST
+            return EDWIN_JP_COST if 'JUANA PIO' in t.get('farms', {}) else EDWIN_B_COST
         return yuber_A(t['total']) if is_group_a else yuber_B(t['total'])
 
     all_trips = []
