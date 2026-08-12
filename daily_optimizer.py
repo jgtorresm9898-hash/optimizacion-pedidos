@@ -23,6 +23,9 @@ Logica validada con el usuario (julio 2026):
   (tarifa Chigorodo), tope 24P, y puede cuartear Juana Pio con fincas del
   grupo barato (Dona Francia, Chispero, Salvamento) en el mismo viaje. Edwin
   sigue SIN poder recoger San Bartolo ni Santa Maria.
+- Recargo por cuarteo: cada viaje que combine 2 o mas fincas distintas suma
+  $100.000 sobre el costo base del viaje (aplica a cualquier transportista,
+  cualquier grupo). Un viaje con una sola finca no paga este recargo.
 """
 import itertools
 
@@ -36,6 +39,7 @@ DEMETRIO_A_COST = 850_000
 DEMETRIO_B_COST = 550_000
 EDWIN_B_COST = 600_000
 EDWIN_JP_COST = 1_050_000  # Edwin con Juana Pio (mezclada o no con grupo barato)
+CUARTEO_SURCHARGE = 100_000  # recargo por viaje que mezcla 2+ fincas
 
 EDWIN_EXCLUDED_B = {'SANTA MARIA'}
 
@@ -53,49 +57,55 @@ def yuber_B(n):
 
 
 # ───────────────────────── Grupo A (San Bartolo + Juana Pio) ─────────────────────────
-def _best_group_a(total, demetrio_budget, _memo={}):
-    key = (total, demetrio_budget)
+def _cost_a(carrier, total, mixed):
+    base = yuber_A(total) if carrier == 'Yuber' else DEMETRIO_A_COST
+    return base + (CUARTEO_SURCHARGE if mixed else 0)
+
+
+def _best_group_a(sb_remaining, jp_remaining, demetrio_budget, _memo={}):
+    """DP sobre (San Bartolo restante, Juana Pio restante, presupuesto de
+    Demetrio). Se rastrea cada finca por separado (en vez de solo el total)
+    para saber, viaje a viaje, si mezcla San Bartolo + Juana Pio y por lo
+    tanto paga el recargo de cuarteo."""
+    key = (sb_remaining, jp_remaining, demetrio_budget)
     if key in _memo:
         return _memo[key]
-    if total <= 0:
-        return (0, ())
+    if sb_remaining <= 0 and jp_remaining <= 0:
+        _memo[key] = (0, ())
+        return _memo[key]
+
     best = None
-    for s in range(1, min(total, CAP_YUBER) + 1):
-        sub_cost, sub_trips = _best_group_a(total - s, demetrio_budget)
-        cost = yuber_A(s) + sub_cost
-        if best is None or cost < best[0]:
-            best = (cost, (('Yuber', s),) + sub_trips)
-    if demetrio_budget > 0:
-        for s in range(1, min(total, CAP_DEMETRIO) + 1):
-            sub_cost, sub_trips = _best_group_a(total - s, demetrio_budget - 1)
-            cost = DEMETRIO_A_COST + sub_cost
-            if best is None or cost < best[0]:
-                best = (cost, (('Demetrio', s),) + sub_trips)
+
+    def try_carrier(carrier, cap, budget_ok):
+        nonlocal best
+        if not budget_ok:
+            return
+        for sb_take in range(0, min(sb_remaining, cap) + 1):
+            max_jp = min(jp_remaining, cap - sb_take)
+            for jp_take in range(0, max_jp + 1):
+                total = sb_take + jp_take
+                if total == 0:
+                    continue
+                mixed = sb_take > 0 and jp_take > 0
+                cost = _cost_a(carrier, total, mixed)
+                next_budget = demetrio_budget - 1 if carrier == 'Demetrio' else demetrio_budget
+                sub_cost, sub_trips = _best_group_a(
+                    sb_remaining - sb_take, jp_remaining - jp_take, next_budget)
+                total_cost = cost + sub_cost
+                if best is None or total_cost < best[0]:
+                    farms = {}
+                    if sb_take:
+                        farms['SAN BARTOLO'] = sb_take
+                    if jp_take:
+                        farms['JUANA PIO'] = jp_take
+                    trip = {'carrier': carrier, 'total': total, 'farms': farms}
+                    best = (total_cost, (trip,) + sub_trips)
+
+    try_carrier('Yuber', CAP_YUBER, True)
+    try_carrier('Demetrio', CAP_DEMETRIO, demetrio_budget > 0)
+
     _memo[key] = best
     return best
-
-
-def _allocate_group_a(trip_sizes, sb_total, jp_total):
-    """Reparte los pallets de San Bartolo y Juana Pio entre los viajes ya
-    decididos (por tamano), priorizando San Bartolo primero en cada viaje."""
-    trips = sorted(trip_sizes, key=lambda t: -t[1])
-    sb_left, jp_left = sb_total, jp_total
-    out = []
-    for carrier, size in trips:
-        take_sb = min(sb_left, size)
-        take_jp = min(size - take_sb, jp_left)
-        remaining = size - take_sb - take_jp
-        if remaining > 0:
-            take_sb += min(remaining, sb_left - take_sb)
-        sb_left -= take_sb
-        jp_left -= take_jp
-        farms = {}
-        if take_sb > 0:
-            farms['SAN BARTOLO'] = take_sb
-        if take_jp > 0:
-            farms['JUANA PIO'] = take_jp
-        out.append({'carrier': carrier, 'total': size, 'farms': farms})
-    return out
 
 
 # ───────────────────────── Grupo B (Doña Francia, Chispero, Santa Maria) ─────────────────────────
@@ -129,20 +139,21 @@ def _farm_split_options(farm, amount):
 def _group_cost_options_pieces(idx_group, pieces):
     farms_in_group = {pieces[i][0] for i in idx_group}
     total = sum(pieces[i][1] for i in idx_group)
+    surcharge = CUARTEO_SURCHARGE if len(farms_in_group) > 1 else 0
     opts = []
     if 'JUANA PIO' in farms_in_group:
         # Puente Juana Pio -> grupo barato: solo Edwin puede recogerla aqui,
         # a su tarifa de Chigorodo, sola o cuarteada con fincas del grupo
         # barato. Santa Maria sigue excluida (no se puede mezclar con Edwin).
         if total <= CAP_EDWIN and not (farms_in_group & EDWIN_EXCLUDED_B):
-            opts.append(('Edwin', EDWIN_JP_COST))
+            opts.append(('Edwin', EDWIN_JP_COST + surcharge))
         return opts
     if total <= CAP_YUBER:
-        opts.append(('Yuber', yuber_B(total)))
+        opts.append(('Yuber', yuber_B(total) + surcharge))
     if total <= CAP_DEMETRIO:
-        opts.append(('Demetrio', DEMETRIO_B_COST))
+        opts.append(('Demetrio', DEMETRIO_B_COST + surcharge))
     if total <= CAP_EDWIN and not (farms_in_group & EDWIN_EXCLUDED_B):
-        opts.append(('Edwin', EDWIN_B_COST))
+        opts.append(('Edwin', EDWIN_B_COST + surcharge))
     return opts
 
 
@@ -224,7 +235,6 @@ def optimize_day(pallets):
     best = None
     for jp_to_b in range(0, jp_total + 1):
         jp_to_a = jp_total - jp_to_b
-        T_a = sb_total + jp_to_a
 
         b_amounts = {f: pallets[f] for f in GROUP_B}
         b_amounts['JUANA PIO'] = jp_to_b
@@ -235,24 +245,28 @@ def optimize_day(pallets):
             b_combos = [(0, 0, 0, [])]
 
         for demA in [0, 1, 2]:
-            costA, tripsA_sizes = _best_group_a(T_a, demA)
+            costA, tripsA = _best_group_a(sb_total, jp_to_a, demA)
             for cb in b_combos:
                 demB, edwB = cb[1], cb[2]
                 if demA + demB <= 2 and edwB <= 2:
                     total = costA + cb[0]
                     if best is None or total < best[0]:
-                        best = (total, demA, tripsA_sizes, cb, jp_to_a)
+                        best = (total, tripsA, cb)
 
-    total_cost, demA, tripsA_sizes, cb, jp_to_a = best
-    tripsA = _allocate_group_a(list(tripsA_sizes), sb_total, jp_to_a)
+    total_cost, tripsA, cb = best
     tripsB = cb[3]
 
     def _trip_cost(t, is_group_a):
+        farms_in_trip = t.get('farms', {})
+        surcharge = CUARTEO_SURCHARGE if len(farms_in_trip) > 1 else 0
         if t['carrier'] == 'Demetrio':
-            return DEMETRIO_A_COST if is_group_a else DEMETRIO_B_COST
+            base = DEMETRIO_A_COST if is_group_a else DEMETRIO_B_COST
+            return base + surcharge
         if t['carrier'] == 'Edwin':
-            return EDWIN_JP_COST if 'JUANA PIO' in t.get('farms', {}) else EDWIN_B_COST
-        return yuber_A(t['total']) if is_group_a else yuber_B(t['total'])
+            base = EDWIN_JP_COST if 'JUANA PIO' in farms_in_trip else EDWIN_B_COST
+            return base + surcharge
+        base = yuber_A(t['total']) if is_group_a else yuber_B(t['total'])
+        return base + surcharge
 
     all_trips = []
     for t in tripsA:
