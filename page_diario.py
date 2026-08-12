@@ -86,4 +86,6 @@ def render():
                 c3.markdown(f"**{money(t['cost'])}**")
 
         st.markdown("#### Total del día")
-        st.metric("Costo total", money(resultado['total_cost']))
+        c1, c2 = st.columns(2)
+        c1.metric("Total pallets", f"{sum(pallets.values())}P")
+        c2.metric("Costo total", money(resultado['total_cost']))
