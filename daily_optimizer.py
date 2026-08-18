@@ -28,6 +28,7 @@ Logica validada con el usuario (julio 2026):
   cualquier grupo). Un viaje con una sola finca no paga este recargo.
 """
 import itertools
+import functools
 
 GROUP_A = ['SAN BARTOLO', 'JUANA PIO']
 GROUP_B = ['DOÑA FRANCIA', 'CHISPERO', 'SANTA MARIA', 'SALVAMENTO']
@@ -136,9 +137,17 @@ def _farm_split_options(farm, amount):
     return opts
 
 
-def _group_cost_options_pieces(idx_group, pieces):
-    farms_in_group = {pieces[i][0] for i in idx_group}
-    total = sum(pieces[i][1] for i in idx_group)
+@functools.lru_cache(maxsize=None)
+def _group_cost_options_cached(farms_in_group, total):
+    """El costo/las opciones de un grupo (viaje) dependen solo de QUE fincas
+    lo componen y del TOTAL de pallets -- nunca de como ese total se repartio
+    en piezas para llegar ahi. Antes esto se recalculaba desde cero para
+    cada (idx_group, pieces) posible entre todas las combinaciones de split
+    y particiones evaluadas (decenas de millones de llamadas para pedidos
+    grandes, siendo el cuello de botella real del calculo). Cachear por
+    (fincas, total) -- un espacio minusculo de combinaciones reales -- da el
+    mismo resultado exacto pero evita rehacer el mismo trabajo una y otra
+    vez."""
     surcharge = CUARTEO_SURCHARGE if len(farms_in_group) > 1 else 0
     opts = []
     if 'JUANA PIO' in farms_in_group:
@@ -157,6 +166,33 @@ def _group_cost_options_pieces(idx_group, pieces):
     return opts
 
 
+def _group_cost_options_pieces(idx_group, pieces):
+    farms_in_group = frozenset(pieces[i][0] for i in idx_group)
+    total = sum(pieces[i][1] for i in idx_group)
+    return _group_cost_options_cached(farms_in_group, total)
+
+
+_partitions_cache = {}
+
+
+def _cached_partitions(n):
+    """_partitions(range(n)) depende solo de n (la cantidad de piezas), no de
+    cuales sean esas piezas. Cada opcion de split de una finca siempre
+    produce la MISMA cantidad de piezas (1 si cabe entera, 2 si no), asi que
+    n es constante para todas las combinaciones de split dentro de una misma
+    llamada a _cell_combos_b -- y tambien se repite entre llamadas (p.ej. al
+    variar Juana Pio de 0 a jp_total en optimize_day). Antes se regeneraba
+    esta lista de particiones (que crece como el numero de Bell) en cada
+    iteracion del loop de splits, haciendo el mismo trabajo cientos de veces
+    de forma identica. Cachearla por n elimina ese trabajo repetido sin
+    cambiar el resultado."""
+    cached = _partitions_cache.get(n)
+    if cached is None:
+        cached = list(_partitions(list(range(n))))
+        _partitions_cache[n] = cached
+    return cached
+
+
 def _cell_combos_b(amounts):
     """Devuelve, por cada combinacion (viajes de Demetrio, viajes de Edwin)
     factible, el trip-set de menor costo. Se poda en el momento (en vez de
@@ -173,7 +209,7 @@ def _cell_combos_b(amounts):
     for split_combo in itertools.product(*split_choices):
         pieces = [piece for group in split_combo for piece in group]
         n = len(pieces)
-        for part in _partitions(list(range(n))):
+        for part in _cached_partitions(n):
             opts_per_group = []
             feasible = True
             for idx_group in part:

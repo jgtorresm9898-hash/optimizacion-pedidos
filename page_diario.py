@@ -70,7 +70,8 @@ def render():
             st.warning("Ingresa al menos una finca con pallets antes de calcular.")
             st.stop()
 
-        resultado = optimize_day(pallets)
+        with st.spinner("Calculando la ruta más económica… con pedidos grandes puede tardar unos segundos."):
+            resultado = optimize_day(pallets)
 
         st.success(f"✅ Ruta óptima calculada para **{dia}**")
 
