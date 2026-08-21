@@ -22,6 +22,10 @@ Logica validada con el usuario (julio-agosto 2026):
   (tarifa Chigorodo), tope 24P, y puede cuartear Juana Pio con fincas del
   grupo barato (Dona Francia, Chispero, Salvamento) en el mismo viaje. Edwin
   sigue SIN poder recoger San Bartolo ni Santa Maria.
+- Edwin NO alcanza a hacer 2 viajes desde Chigorodo (o sea, 2 viajes que
+  lleven Juana Pio) en un mismo dia -- desde Apartado (Dona Francia,
+  Chispero, Salvamento) si puede hacer sus 2 viajes normales. De los
+  maximo 2 viajes/dia de Edwin, maximo 1 puede llevar Juana Pio.
 - Recargo por cuarteo: SE COBRA POR CADA PARADA ADICIONAL, no es un monto
   fijo por viaje. Un viaje de 1 sola finca no paga recargo; de 2 fincas
   paga $100.000 (1 parada extra); de 3 fincas paga $200.000 (2 paradas
@@ -254,7 +258,7 @@ def optimize_day(pallets):
         active = _or_bin_from_list(model, list(in_bin.values()), f'e_act_{i}')
         cost = model.NewIntVar(0, 2_000_000, f'e_cost_{i}')
         model.Add(cost == EDWIN_JP_COST * jp_in + EDWIN_B_COST * b_only + CUARTEO_SURCHARGE * extra)
-        pool.append({'carrier': 'Edwin', 'farms': amt, 'active': active, 'cost': cost, 'total': total})
+        pool.append({'carrier': 'Edwin', 'farms': amt, 'active': active, 'cost': cost, 'total': total, 'jp_in': jp_in})
     _break_symmetry(pool)
     slots += pool
 
@@ -267,6 +271,11 @@ def optimize_day(pallets):
     edwin_slots    = [s for s in slots if s['carrier'] == 'Edwin']
     model.Add(sum(s['active'] for s in demetrio_slots) <= 2)
     model.Add(sum(s['active'] for s in edwin_slots) <= 2)
+
+    # Edwin no alcanza a hacer 2 viajes desde Chigorodo (Juana Pio) en un
+    # mismo dia -- desde Apartado (Doña Francia/Chispero/Salvamento) si.
+    # De los <=2 viajes/dia de Edwin, maximo 1 puede llevar Juana Pio.
+    model.Add(sum(s['jp_in'] for s in edwin_slots) <= 1)
 
     model.Minimize(sum(s['cost'] for s in slots))
 

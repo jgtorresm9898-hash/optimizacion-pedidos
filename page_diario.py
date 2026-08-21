@@ -80,11 +80,13 @@ def render():
             fincas_str = " + ".join(
                 f"{FARM_LABELS.get(f, f)} {p}P" for f, p in t['farms'].items()
             )
+            promedio = t['cost'] / t['total'] if t['total'] else 0
             with st.container(border=True):
-                c1, c2, c3 = st.columns([2, 4, 2])
+                c1, c2, c3, c4 = st.columns([2, 4, 2, 2])
                 c1.markdown(f"**{t['carrier']}**")
                 c2.markdown(f"{fincas_str} — {t['total']}P")
                 c3.markdown(f"**{money(t['cost'])}**")
+                c4.markdown(f"<span style='color:#888'>{money(promedio)}/P</span>", unsafe_allow_html=True)
 
         st.markdown("#### Total del día")
         c1, c2 = st.columns(2)
