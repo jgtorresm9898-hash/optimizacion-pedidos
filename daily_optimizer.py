@@ -22,12 +22,12 @@ Logica validada con el usuario (julio-agosto 2026):
   (tarifa Chigorodo), tope 24P, y puede cuartear Juana Pio con fincas del
   grupo barato (Dona Francia, Chispero, Salvamento) en el mismo viaje. Edwin
   sigue SIN poder recoger San Bartolo ni Santa Maria.
-- Los topes de viajes/dia de Edwin son POR ZONA, no un total combinado:
-  si va a Chigorodo (o sea, lleva Juana Pio) solo alcanza a hacer 1 viaje
-  ese dia; si va a Apartado (Dona Francia, Chispero, Salvamento) si
-  alcanza a hacer sus 2 viajes normales. Los dos topes son independientes,
-  asi que en un mismo dia Edwin puede llegar a 3 viajes en total (1
-  Chigorodo + 2 Apartado).
+- Si Edwin hace CUALQUIER viaje que toque Chigorodo ese dia (Juana Pio,
+  sola o cuarteada con fincas de Apartado), ese viaje es el UNICO que
+  alcanza a hacer en todo el dia -- no le da tiempo a nada mas, ni otro
+  de Chigorodo ni de Apartado. Si NO toca Chigorodo para nada ese dia
+  (todos sus viajes son puro Apartado: Dona Francia, Chispero,
+  Salvamento), si alcanza a hacer sus 2 viajes normales.
 - Recargo por cuarteo: SE COBRA POR CADA PARADA ADICIONAL, no es un monto
   fijo por viaje. Un viaje de 1 sola finca no paga recargo; de 2 fincas
   paga $100.000 (1 parada extra); de 3 fincas paga $200.000 (2 paradas
@@ -141,7 +141,7 @@ def optimize_day(pallets):
     n_b_yuber = _num_slots(demand_b, CAP_YUBER)
     n_a_dem   = 2   # tope real de Demetrio (compartido con grupo B abajo)
     n_b_dem   = 2
-    n_edwin   = 3   # Edwin: hasta 1 viaje Chigorodo (Juana Pio) + hasta 2 Apartado
+    n_edwin   = 2   # Edwin: 2 viajes/dia si son de Apartado, pero solo 1 si alguno toca Chigorodo
 
     slots = []  # cada entrada: dict con toda la info del cupo ya resuelta
 
@@ -273,13 +273,17 @@ def optimize_day(pallets):
     edwin_slots    = [s for s in slots if s['carrier'] == 'Edwin']
     model.Add(sum(s['active'] for s in demetrio_slots) <= 2)
 
-    # Edwin: los topes de viajes/dia son POR ZONA, no un total combinado.
-    # Si va a Chigorodo (lleva Juana Pio) solo alcanza a hacer 1 viaje ese
-    # dia; si va a Apartado (Doña Francia/Chispero/Salvamento) si alcanza a
-    # hacer sus 2 viajes normales -- los dos topes son independientes, asi
-    # que en un mismo dia puede llegar a 3 viajes (1 Chigorodo + 2 Apartado).
-    model.Add(sum(s['jp_in'] for s in edwin_slots) <= 1)
-    model.Add(sum(s['active'] - s['jp_in'] for s in edwin_slots) <= 2)
+    # Edwin: si CUALQUIER viaje del dia toca Chigorodo (lleva Juana Pio,
+    # solo o cuarteada con Apartado), ese es el UNICO viaje que alcanza a
+    # hacer ese dia -- no le da tiempo a nada mas. Si no toca Chigorodo
+    # para nada (todos sus viajes son puro Apartado: Doña Francia/
+    # Chispero/Salvamento), si alcanza a hacer sus 2 viajes normales.
+    # sum(active) + sum(jp_in) <= 2 codifica exactamente esto: si hay un
+    # viaje con Juana Pio (jp_in=1 en ese cupo, active=1 en ese cupo),
+    # ya suma 2 el solo -- no deja espacio para ningun otro viaje activo.
+    # Si no hay ningun viaje con Juana Pio, el limite normal de 2 queda
+    # intacto.
+    model.Add(sum(s['active'] for s in edwin_slots) + sum(s['jp_in'] for s in edwin_slots) <= 2)
 
     model.Minimize(sum(s['cost'] for s in slots))
 
