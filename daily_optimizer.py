@@ -22,9 +22,12 @@ Logica validada con el usuario (julio-agosto 2026):
   (tarifa Chigorodo), tope 24P, y puede cuartear Juana Pio con fincas del
   grupo barato (Dona Francia, Chispero, Salvamento) en el mismo viaje. Edwin
   sigue SIN poder recoger San Bartolo ni Santa Maria.
-- Recargo por cuarteo: cada viaje que combine 2 o mas fincas distintas suma
-  $100.000 sobre el costo base del viaje (aplica a cualquier transportista,
-  cualquier grupo). Un viaje con una sola finca no paga este recargo.
+- Recargo por cuarteo: SE COBRA POR CADA PARADA ADICIONAL, no es un monto
+  fijo por viaje. Un viaje de 1 sola finca no paga recargo; de 2 fincas
+  paga $100.000 (1 parada extra); de 3 fincas paga $200.000 (2 paradas
+  extra); de 4 fincas paga $300.000 (3 paradas extra). Formula: $100.000 x
+  (numero de fincas distintas en el viaje - 1). Aplica a cualquier
+  transportista, cualquier grupo.
 
 Motor de calculo (agosto 2026): antes esto se resolvia con combinatoria
 hecha a mano (particiones + memoizacion). Esa version tenia un hueco real:
@@ -85,15 +88,6 @@ def _num_slots(total_demand, cap, minimum=1, margin=1):
     return max(minimum, math.ceil(total_demand / cap) + margin)
 
 
-def _and_bin(model, a, b, name):
-    """Variable binaria = a AND b (a, b binarias)."""
-    r = model.NewBoolVar(name)
-    model.Add(r <= a)
-    model.Add(r <= b)
-    model.Add(r >= a + b - 1)
-    return r
-
-
 def _or_bin_from_list(model, bins, name):
     """Variable binaria = OR(bins). Solo fuerza r=1 cuando algun bin=1; el
     caso r=0 con todos los bins en 0 lo deja libre la minimizacion (nunca
@@ -105,14 +99,16 @@ def _or_bin_from_list(model, bins, name):
     return r
 
 
-def _at_least_two_bin(model, bins, name):
-    """Variable binaria que se fuerza a 1 si 2 o mas de las binarias en
-    `bins` estan activas (recargo de cuarteo). No se fuerza a 0 en el otro
-    caso -- no hace falta, el costo positivo asociado hace que la
-    minimizacion nunca la prenda de gratis."""
-    r = model.NewBoolVar(name)
-    n = len(bins)
-    model.Add(sum(bins) <= 1 + (n - 1) * r)
+def _extra_stops(model, bins, name):
+    """Cuantas 'paradas extra' paga el viaje: (cantidad de fincas distintas
+    presentes) - 1, sin bajar de 0. Con 1 sola finca son 0 paradas extra
+    (no paga recargo); con 2 fincas es 1 parada extra ($100.000); con 3
+    fincas son 2 paradas extra ($200.000); etc. No hace falta acotar por
+    arriba -- el costo positivo asociado hace que la minimizacion nunca
+    infle esta variable de gratis, solo la deja subir cuando la suma de
+    fincas activas lo obliga."""
+    r = model.NewIntVar(0, max(0, len(bins) - 1), name)
+    model.Add(r >= sum(bins) - 1)
     return r
 
 
@@ -166,11 +162,11 @@ def optimize_day(pallets):
         model.Add(total == sb + jp)
         model.Add(total <= CAP_YUBER)
         active = _or_bin_from_list(model, [sb_in, jp_in], f'ay_act_{i}')
-        mixed  = _and_bin(model, sb_in, jp_in, f'ay_mix_{i}')
+        extra  = _extra_stops(model, [sb_in, jp_in], f'ay_extra_{i}')
         over = model.NewIntVar(0, CAP_YUBER, f'ay_over_{i}')
         model.Add(over >= total - YUBER_INCLUDED)
         cost = model.NewIntVar(0, 3_000_000, f'ay_cost_{i}')
-        model.Add(cost == 1_050_000 * active + YUBER_OVERAGE * over + CUARTEO_SURCHARGE * mixed)
+        model.Add(cost == 1_050_000 * active + YUBER_OVERAGE * over + CUARTEO_SURCHARGE * extra)
         pool.append({'carrier': 'Yuber', 'farms': {SB: sb, JP: jp}, 'active': active, 'cost': cost, 'total': total})
     _break_symmetry(pool)
     slots += pool
@@ -187,9 +183,9 @@ def optimize_day(pallets):
         model.Add(total == sb + jp)
         model.Add(total <= CAP_DEMETRIO)
         active = _or_bin_from_list(model, [sb_in, jp_in], f'ad_act_{i}')
-        mixed  = _and_bin(model, sb_in, jp_in, f'ad_mix_{i}')
+        extra  = _extra_stops(model, [sb_in, jp_in], f'ad_extra_{i}')
         cost = model.NewIntVar(0, 2_000_000, f'ad_cost_{i}')
-        model.Add(cost == DEMETRIO_A_COST * active + CUARTEO_SURCHARGE * mixed)
+        model.Add(cost == DEMETRIO_A_COST * active + CUARTEO_SURCHARGE * extra)
         pool.append({'carrier': 'Demetrio', 'farms': {SB: sb, JP: jp}, 'active': active, 'cost': cost, 'total': total})
     _break_symmetry(pool)
     slots += pool
@@ -207,11 +203,11 @@ def optimize_day(pallets):
         model.Add(total == sum(amt.values()))
         model.Add(total <= CAP_YUBER)
         active = _or_bin_from_list(model, list(in_bin.values()), f'by_act_{i}')
-        mixed  = _at_least_two_bin(model, list(in_bin.values()), f'by_mix_{i}')
+        extra  = _extra_stops(model, list(in_bin.values()), f'by_extra_{i}')
         over = model.NewIntVar(0, CAP_YUBER, f'by_over_{i}')
         model.Add(over >= total - YUBER_INCLUDED)
         cost = model.NewIntVar(0, 3_000_000, f'by_cost_{i}')
-        model.Add(cost == 630_000 * active + YUBER_OVERAGE * over + CUARTEO_SURCHARGE * mixed)
+        model.Add(cost == 630_000 * active + YUBER_OVERAGE * over + CUARTEO_SURCHARGE * extra)
         pool.append({'carrier': 'Yuber', 'farms': amt, 'active': active, 'cost': cost, 'total': total})
     _break_symmetry(pool)
     slots += pool
@@ -228,9 +224,9 @@ def optimize_day(pallets):
         model.Add(total == sum(amt.values()))
         model.Add(total <= CAP_DEMETRIO)
         active = _or_bin_from_list(model, list(in_bin.values()), f'bd_act_{i}')
-        mixed  = _at_least_two_bin(model, list(in_bin.values()), f'bd_mix_{i}')
+        extra  = _extra_stops(model, list(in_bin.values()), f'bd_extra_{i}')
         cost = model.NewIntVar(0, 2_000_000, f'bd_cost_{i}')
-        model.Add(cost == DEMETRIO_B_COST * active + CUARTEO_SURCHARGE * mixed)
+        model.Add(cost == DEMETRIO_B_COST * active + CUARTEO_SURCHARGE * extra)
         pool.append({'carrier': 'Demetrio', 'farms': amt, 'active': active, 'cost': cost, 'total': total})
     _break_symmetry(pool)
     slots += pool
@@ -254,10 +250,10 @@ def optimize_day(pallets):
         model.Add(b_only <= group_act)
         model.Add(b_only <= 1 - jp_in)
         model.Add(b_only >= group_act - jp_in)
-        mixed = _at_least_two_bin(model, [in_bin[JP], in_bin[DF], in_bin[CH], in_bin[SV]], f'e_mix_{i}')
+        extra  = _extra_stops(model, [in_bin[JP], in_bin[DF], in_bin[CH], in_bin[SV]], f'e_extra_{i}')
         active = _or_bin_from_list(model, list(in_bin.values()), f'e_act_{i}')
         cost = model.NewIntVar(0, 2_000_000, f'e_cost_{i}')
-        model.Add(cost == EDWIN_JP_COST * jp_in + EDWIN_B_COST * b_only + CUARTEO_SURCHARGE * mixed)
+        model.Add(cost == EDWIN_JP_COST * jp_in + EDWIN_B_COST * b_only + CUARTEO_SURCHARGE * extra)
         pool.append({'carrier': 'Edwin', 'farms': amt, 'active': active, 'cost': cost, 'total': total})
     _break_symmetry(pool)
     slots += pool
