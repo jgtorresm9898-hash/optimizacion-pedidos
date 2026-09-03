@@ -122,6 +122,20 @@ def _extra_stops(model, bins, name):
     return r
 
 
+def _over_two_farms(model, bins, name):
+    """Cuantas fincas de mas hay por encima de 2 en el viaje (0 si el viaje
+    tiene 1 o 2 fincas, 1 si tiene 3, 2 si tiene 4, etc.). No afecta el
+    costo real del viaje -- se usa solo como criterio de desempate: entre
+    dos formas de armar las rutas que cuestan exactamente lo mismo, se
+    prefiere la que menos mezcle 3+ fincas en un mismo camion (mezclar 2
+    esta bien, 3 o mas es logisticamente complicado). Si la unica forma de
+    llegar al precio mas barato es con 3+ fincas, esa se sigue usando
+    igual -- el costo siempre manda primero."""
+    r = model.NewIntVar(0, max(0, len(bins) - 2), name)
+    model.Add(r >= sum(bins) - 2)
+    return r
+
+
 def optimize_day(pallets, unavailable_carriers=None):
     """
     pallets: dict con llaves 'JUANA PIO', 'DOÑA FRANCIA', 'SANTA MARIA',
@@ -179,11 +193,13 @@ def optimize_day(pallets, unavailable_carriers=None):
         model.Add(total <= CAP_YUBER)
         active = _or_bin_from_list(model, [sb_in, jp_in], f'ay_act_{i}')
         extra  = _extra_stops(model, [sb_in, jp_in], f'ay_extra_{i}')
+        over_two = _over_two_farms(model, [sb_in, jp_in], f'ay_ot_{i}')
         over = model.NewIntVar(0, CAP_YUBER, f'ay_over_{i}')
         model.Add(over >= total - YUBER_INCLUDED)
         cost = model.NewIntVar(0, 3_000_000, f'ay_cost_{i}')
         model.Add(cost == 1_050_000 * active + YUBER_OVERAGE * over + CUARTEO_SURCHARGE * extra)
-        pool.append({'carrier': 'Yuber', 'farms': {SB: sb, JP: jp}, 'active': active, 'cost': cost, 'total': total})
+        pool.append({'carrier': 'Yuber', 'farms': {SB: sb, JP: jp}, 'active': active, 'cost': cost, 'total': total,
+                     'extra': extra, 'over_two': over_two})
     _break_symmetry(pool)
     slots += pool
 
@@ -200,9 +216,11 @@ def optimize_day(pallets, unavailable_carriers=None):
         model.Add(total <= CAP_DEMETRIO)
         active = _or_bin_from_list(model, [sb_in, jp_in], f'ad_act_{i}')
         extra  = _extra_stops(model, [sb_in, jp_in], f'ad_extra_{i}')
+        over_two = _over_two_farms(model, [sb_in, jp_in], f'ad_ot_{i}')
         cost = model.NewIntVar(0, 2_000_000, f'ad_cost_{i}')
         model.Add(cost == DEMETRIO_A_COST * active + CUARTEO_SURCHARGE * extra)
-        pool.append({'carrier': 'Demetrio', 'farms': {SB: sb, JP: jp}, 'active': active, 'cost': cost, 'total': total})
+        pool.append({'carrier': 'Demetrio', 'farms': {SB: sb, JP: jp}, 'active': active, 'cost': cost, 'total': total,
+                     'extra': extra, 'over_two': over_two})
     _break_symmetry(pool)
     slots += pool
 
@@ -223,11 +241,13 @@ def optimize_day(pallets, unavailable_carriers=None):
         model.Add(total <= YUBER_SALVAMENTO_CAP).OnlyEnforceIf(in_bin[SV])
         active = _or_bin_from_list(model, list(in_bin.values()), f'by_act_{i}')
         extra  = _extra_stops(model, list(in_bin.values()), f'by_extra_{i}')
+        over_two = _over_two_farms(model, list(in_bin.values()), f'by_ot_{i}')
         over = model.NewIntVar(0, CAP_YUBER, f'by_over_{i}')
         model.Add(over >= total - YUBER_INCLUDED)
         cost = model.NewIntVar(0, 3_000_000, f'by_cost_{i}')
         model.Add(cost == 630_000 * active + YUBER_OVERAGE * over + CUARTEO_SURCHARGE * extra)
-        pool.append({'carrier': 'Yuber', 'farms': amt, 'active': active, 'cost': cost, 'total': total})
+        pool.append({'carrier': 'Yuber', 'farms': amt, 'active': active, 'cost': cost, 'total': total,
+                     'extra': extra, 'over_two': over_two})
     _break_symmetry(pool)
     slots += pool
 
@@ -244,9 +264,11 @@ def optimize_day(pallets, unavailable_carriers=None):
         model.Add(total <= CAP_DEMETRIO)
         active = _or_bin_from_list(model, list(in_bin.values()), f'bd_act_{i}')
         extra  = _extra_stops(model, list(in_bin.values()), f'bd_extra_{i}')
+        over_two = _over_two_farms(model, list(in_bin.values()), f'bd_ot_{i}')
         cost = model.NewIntVar(0, 2_000_000, f'bd_cost_{i}')
         model.Add(cost == DEMETRIO_B_COST * active + CUARTEO_SURCHARGE * extra)
-        pool.append({'carrier': 'Demetrio', 'farms': amt, 'active': active, 'cost': cost, 'total': total})
+        pool.append({'carrier': 'Demetrio', 'farms': amt, 'active': active, 'cost': cost, 'total': total,
+                     'extra': extra, 'over_two': over_two})
     _break_symmetry(pool)
     slots += pool
 
@@ -270,10 +292,12 @@ def optimize_day(pallets, unavailable_carriers=None):
         model.Add(b_only <= 1 - jp_in)
         model.Add(b_only >= group_act - jp_in)
         extra  = _extra_stops(model, [in_bin[JP], in_bin[DF], in_bin[CH], in_bin[SV]], f'e_extra_{i}')
+        over_two = _over_two_farms(model, [in_bin[JP], in_bin[DF], in_bin[CH], in_bin[SV]], f'e_ot_{i}')
         active = _or_bin_from_list(model, list(in_bin.values()), f'e_act_{i}')
         cost = model.NewIntVar(0, 2_000_000, f'e_cost_{i}')
         model.Add(cost == EDWIN_JP_COST * jp_in + EDWIN_B_COST * b_only + CUARTEO_SURCHARGE * extra)
-        pool.append({'carrier': 'Edwin', 'farms': amt, 'active': active, 'cost': cost, 'total': total, 'jp_in': jp_in})
+        pool.append({'carrier': 'Edwin', 'farms': amt, 'active': active, 'cost': cost, 'total': total, 'jp_in': jp_in,
+                     'extra': extra, 'over_two': over_two})
     _break_symmetry(pool)
     slots += pool
 
@@ -298,10 +322,29 @@ def optimize_day(pallets, unavailable_carriers=None):
     # intacto.
     model.Add(sum(s['active'] for s in edwin_slots) + sum(s['jp_in'] for s in edwin_slots) <= 2)
 
-    model.Minimize(sum(s['cost'] for s in slots))
+    # ── Desempate entre soluciones igual de baratas ──
+    # El costo SIEMPRE manda -- estos criterios solo deciden cual de varias
+    # rutas igual de baratas se muestra, nunca escogen una mas cara.
+    # 1) Evitar en lo posible viajes que mezclen 3 o mas fincas (2 esta
+    #    bien, es logisticamente normal; 3+ es un enredo). Si la unica
+    #    forma de llegar al precio mas barato es con 3+ fincas, se deja
+    #    igual -- este criterio nunca sube el costo, solo desempata.
+    # 2) Entre las que quedan, preferir la que en total tenga menos
+    #    "paradas" (fincas distintas recogidas, sumando todos los viajes).
+    total_over_two = model.NewIntVar(0, 10_000, 'total_over_two')
+    model.Add(total_over_two == sum(s['over_two'] for s in slots))
+    total_stops = model.NewIntVar(0, 10_000, 'total_stops')
+    model.Add(total_stops == sum(s['active'] for s in slots) + sum(s['extra'] for s in slots))
+    model.Minimize(sum(s['cost'] for s in slots) * 1000 + total_over_two * 50 + total_stops)
 
     solver = cp_model.CpSolver()
-    solver.parameters.num_search_workers = 8
+    # Un solo hilo de busqueda: con varios hilos en paralelo (num_search_workers
+    # alto) el solver puede devolver soluciones distintas -- igual de baratas,
+    # pero con distinta repartición de camiones -- en corridas diferentes del
+    # mismo pedido. Con un solo hilo la busqueda es determinística: mismo
+    # pedido, siempre exactamente el mismo resultado.
+    solver.parameters.num_search_workers = 1
+    solver.parameters.random_seed = 42
     solver.parameters.max_time_in_seconds = 15.0
     status = solver.Solve(model)
 
