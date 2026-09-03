@@ -59,6 +59,7 @@ GROUP_B = ['DOÑA FRANCIA', 'CHISPERO', 'SANTA MARIA', 'SALVAMENTO']
 ALL_FARMS = ['JUANA PIO', 'DOÑA FRANCIA', 'SANTA MARIA', 'CHISPERO', 'SALVAMENTO', 'SAN BARTOLO']
 
 CAP_YUBER, CAP_DEMETRIO, CAP_EDWIN = 26, 18, 24
+YUBER_SALVAMENTO_CAP = 24  # la mula nueva (26P) de Yuber no entra a Salvamento -- tope 24P
 
 CARRIERS = ['YUBER', 'DEMETRIO', 'EDWIN']
 CARRIER_LABELS = {'YUBER': 'Yuber', 'DEMETRIO': 'Demetrio', 'EDWIN': 'Edwin'}
@@ -217,6 +218,9 @@ def optimize_day(pallets, unavailable_carriers=None):
         total = model.NewIntVar(0, CAP_YUBER, f'by_tot_{i}')
         model.Add(total == sum(amt.values()))
         model.Add(total <= CAP_YUBER)
+        # Salvamento: viaje que la incluya (sola o cuarteada) no puede pasar
+        # de 24P -- la mula nueva de 26P de Yuber no entra a esa finca.
+        model.Add(total <= YUBER_SALVAMENTO_CAP).OnlyEnforceIf(in_bin[SV])
         active = _or_bin_from_list(model, list(in_bin.values()), f'by_act_{i}')
         extra  = _extra_stops(model, list(in_bin.values()), f'by_extra_{i}')
         over = model.NewIntVar(0, CAP_YUBER, f'by_over_{i}')
