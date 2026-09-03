@@ -60,6 +60,9 @@ ALL_FARMS = ['JUANA PIO', 'DOÑA FRANCIA', 'SANTA MARIA', 'CHISPERO', 'SALVAMENT
 
 CAP_YUBER, CAP_DEMETRIO, CAP_EDWIN = 26, 18, 24
 
+CARRIERS = ['YUBER', 'DEMETRIO', 'EDWIN']
+CARRIER_LABELS = {'YUBER': 'Yuber', 'DEMETRIO': 'Demetrio', 'EDWIN': 'Edwin'}
+
 DEMETRIO_A_COST = 850_000
 DEMETRIO_B_COST = 550_000
 EDWIN_B_COST = 600_000
@@ -118,13 +121,19 @@ def _extra_stops(model, bins, name):
     return r
 
 
-def optimize_day(pallets):
+def optimize_day(pallets, unavailable_carriers=None):
     """
     pallets: dict con llaves 'JUANA PIO', 'DOÑA FRANCIA', 'SANTA MARIA',
              'CHISPERO', 'SALVAMENTO', 'SAN BARTOLO' (0 si no hay pedido).
+    unavailable_carriers: set/lista opcional con los conductores NO
+             disponibles ese dia, de entre 'YUBER', 'DEMETRIO', 'EDWIN'
+             (p.ej. {'DEMETRIO'} si tiene el carro varado). Sus cupos de
+             viaje simplemente no se crean, asi que el solver reparte todo
+             el pedido entre los conductores que si queden disponibles.
     Retorna: {'trips': [{'carrier', 'total', 'farms': {finca: pallets}, 'cost'}],
               'total_cost': int}
     """
+    unavailable_carriers = set(unavailable_carriers or [])
     d = {f: int(pallets.get(f, 0) or 0) for f in ALL_FARMS}
     if sum(d.values()) == 0:
         return {'trips': [], 'total_cost': 0}
@@ -137,11 +146,11 @@ def optimize_day(pallets):
     demand_a  = d[SB] + d[JP]
     demand_b  = d[DF] + d[CH] + d[SM] + d[SV]
 
-    n_a_yuber = _num_slots(demand_a, CAP_YUBER)
-    n_b_yuber = _num_slots(demand_b, CAP_YUBER)
-    n_a_dem   = 2   # tope real de Demetrio (compartido con grupo B abajo)
-    n_b_dem   = 2
-    n_edwin   = 2   # Edwin: 2 viajes/dia si son de Apartado, pero solo 1 si alguno toca Chigorodo
+    n_a_yuber = 0 if 'YUBER' in unavailable_carriers else _num_slots(demand_a, CAP_YUBER)
+    n_b_yuber = 0 if 'YUBER' in unavailable_carriers else _num_slots(demand_b, CAP_YUBER)
+    n_a_dem   = 0 if 'DEMETRIO' in unavailable_carriers else 2   # tope real de Demetrio (compartido con grupo B abajo)
+    n_b_dem   = 0 if 'DEMETRIO' in unavailable_carriers else 2
+    n_edwin   = 0 if 'EDWIN' in unavailable_carriers else 2      # Edwin: 2 viajes/dia si son de Apartado, pero solo 1 si alguno toca Chigorodo
 
     slots = []  # cada entrada: dict con toda la info del cupo ya resuelta
 
@@ -293,9 +302,15 @@ def optimize_day(pallets):
     status = solver.Solve(model)
 
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-        # No deberia pasar (Yuber no tiene tope de viajes), pero se deja un
-        # mensaje claro en vez de reventar silenciosamente.
-        raise RuntimeError("No se encontro una solucion factible para este pedido.")
+        # No deberia pasar si queda al menos un conductor disponible con
+        # capacidad suficiente; si se desactivan demasiados conductores
+        # para el tamano del pedido, se deja un mensaje claro en vez de
+        # reventar silenciosamente.
+        raise RuntimeError(
+            "No se encontro una solucion factible: los conductores "
+            "disponibles no alcanzan a cubrir este pedido. Revisa cuales "
+            "dejaste activos."
+        )
 
     trips = []
     for s in slots:

@@ -5,11 +5,30 @@ Calculadora simple — se ingresan los pallets por finca de un solo día y
 se devuelve la ruta (vehículos + costo) más barata para despacharlos.
 """
 import streamlit as st
-from daily_optimizer import optimize_day, ALL_FARMS
+from daily_optimizer import optimize_day, ALL_FARMS, CARRIERS, CARRIER_LABELS
 
 
 def money(n):
     return f"${n:,.0f}".replace(",", ".")
+
+
+def _conductor_toggles(key_prefix):
+    """Fila de botones para marcar cada conductor disponible/no disponible
+    (p.ej. carro varado). Devuelve el set de conductores NO disponibles."""
+    cols = st.columns(len(CARRIERS))
+    disponibilidad = {}
+    for i, c in enumerate(CARRIERS):
+        skey = f"{key_prefix}_disp_{c}"
+        if skey not in st.session_state:
+            st.session_state[skey] = True
+        disponible = st.session_state[skey]
+        label = f"✅ {CARRIER_LABELS[c]}" if disponible else f"🚫 {CARRIER_LABELS[c]} (no disp.)"
+        if cols[i].button(label, key=f"{key_prefix}_btn_{c}", use_container_width=True,
+                           type="secondary" if disponible else "primary"):
+            st.session_state[skey] = not disponible
+            st.rerun()
+        disponibilidad[c] = st.session_state[skey]
+    return {c for c, ok in disponibilidad.items() if not ok}
 
 
 FARM_LABELS = {
@@ -51,6 +70,12 @@ def render():
     # ── Día ──────────────────────────────────────────────────────
     dia = st.selectbox("Día", DIAS, label_visibility="visible")
 
+    st.markdown("### Conductores disponibles")
+    st.caption("Si alguno tiene el carro varado o no va a trabajar hoy, quítalo aquí antes de calcular.")
+    unavailable = _conductor_toggles("diario")
+
+    st.divider()
+
     st.markdown(f"### Pedido {dia}")
     st.caption("Escribe los pallets de cada finca. Deja en 0 la finca que no tenga pedido ese día.")
 
@@ -71,9 +96,17 @@ def render():
             st.stop()
 
         with st.spinner("Calculando la ruta más económica… con pedidos grandes puede tardar unos segundos."):
-            resultado = optimize_day(pallets)
+            try:
+                resultado = optimize_day(pallets, unavailable_carriers=unavailable)
+            except RuntimeError as e:
+                st.error(f"⚠️ {e}")
+                st.stop()
 
-        st.success(f"✅ Ruta óptima calculada para **{dia}**")
+        aviso_no_disp = ""
+        if unavailable:
+            nombres = ", ".join(CARRIER_LABELS[c] for c in sorted(unavailable))
+            aviso_no_disp = f" — **sin {nombres}**"
+        st.success(f"✅ Ruta óptima calculada para **{dia}**{aviso_no_disp}")
 
         st.markdown("#### Ruta")
         for t in resultado['trips']:

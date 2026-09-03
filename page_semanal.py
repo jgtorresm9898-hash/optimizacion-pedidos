@@ -121,6 +121,28 @@ def render():
             if d not in st.session_state.vehicle_availability.get(vid, {}):
                 st.session_state.vehicle_availability.setdefault(vid, {})[d] = True
 
+    conductores_semana = sorted({info['conductor'] for info in _oe.VEHICLE_DISPLAY.values()})
+    st.caption("Atajo: marca o quita a un conductor completo, todos los días de una sola vez (p.ej. carro varado).")
+    bulk_cols = st.columns(len(conductores_semana))
+    for i, cond in enumerate(conductores_semana):
+        bkey = f"bulk_avail_{cond}"
+        if bkey not in st.session_state:
+            st.session_state[bkey] = True
+        disponible = st.session_state[bkey]
+        label = f"✅ {cond} disponible" if disponible else f"🚫 {cond} no disponible"
+        if bulk_cols[i].button(label, key=f"bulk_btn_{cond}", use_container_width=True,
+                                type="secondary" if disponible else "primary"):
+            nuevo = not disponible
+            st.session_state[bkey] = nuevo
+            vids_cond = [vid for vid, info in _oe.VEHICLE_DISPLAY.items() if info['conductor'] == cond]
+            for vid in vids_cond:
+                for d in days:
+                    st.session_state.vehicle_availability.setdefault(vid, {})[d] = nuevo
+                    st.session_state[f"avail_{vid}_{d}"] = nuevo
+            st.rerun()
+
+    st.divider()
+
     header_cols = st.columns([2, 2] + [1] * len(days))
     header_cols[0].markdown("**Conductor**")
     header_cols[1].markdown("<span style='font-size:12px;color:#888'>Vehículo</span>", unsafe_allow_html=True)

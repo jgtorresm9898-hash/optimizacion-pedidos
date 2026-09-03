@@ -10,7 +10,7 @@ calcula de forma independiente, igual que en la página diaria.
 """
 import pandas as pd
 import streamlit as st
-from daily_optimizer import optimize_day, ALL_FARMS
+from daily_optimizer import optimize_day, ALL_FARMS, CARRIERS, CARRIER_LABELS
 
 FARM_LABELS = {
     'JUANA PIO':     'Juana Pío',
@@ -26,6 +26,26 @@ DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"]
 
 def money(n):
     return f"${n:,.0f}".replace(",", ".")
+
+
+def _conductor_toggles(key_prefix):
+    """Fila de botones para marcar cada conductor disponible/no disponible
+    (p.ej. carro varado). Aplica a todos los días que se calculen. Devuelve
+    el set de conductores NO disponibles."""
+    cols = st.columns(len(CARRIERS))
+    disponibilidad = {}
+    for i, c in enumerate(CARRIERS):
+        skey = f"{key_prefix}_disp_{c}"
+        if skey not in st.session_state:
+            st.session_state[skey] = True
+        disponible = st.session_state[skey]
+        label = f"✅ {CARRIER_LABELS[c]}" if disponible else f"🚫 {CARRIER_LABELS[c]} (no disp.)"
+        if cols[i].button(label, key=f"{key_prefix}_btn_{c}", use_container_width=True,
+                           type="secondary" if disponible else "primary"):
+            st.session_state[skey] = not disponible
+            st.rerun()
+        disponibilidad[c] = st.session_state[skey]
+    return {c for c, ok in disponibilidad.items() if not ok}
 
 
 def _render_day_result(dia, pallets, resultado):
@@ -84,6 +104,12 @@ def render():
 
     st.divider()
 
+    st.markdown("### Conductores disponibles esta semana")
+    st.caption("Si alguno tiene el carro varado o no va a trabajar, quítalo aquí — aplica a todos los días que calcules.")
+    unavailable = _conductor_toggles("semana_dia")
+
+    st.divider()
+
     # ── Pallets por finca, uno por cada día elegido ─────────────
     pallets_por_dia = {}
     for dia in dias_ordenados:
@@ -108,17 +134,27 @@ def render():
             st.stop()
 
         with st.spinner("Calculando la ruta más económica de cada día… con pedidos grandes puede tardar unos segundos."):
-            resultados = {d: optimize_day(p) for d, p in dias_con_pedido.items()}
+            try:
+                resultados = {d: optimize_day(p, unavailable_carriers=unavailable) for d, p in dias_con_pedido.items()}
+            except RuntimeError as e:
+                st.error(f"⚠️ {e}")
+                st.stop()
 
         st.session_state['semana_resultados']   = resultados
         st.session_state['semana_pallets_calc'] = dias_con_pedido
+        st.session_state['semana_unavailable']  = unavailable
 
     # ── Resultados (persisten entre reruns hasta el próximo cálculo) ──
     if 'semana_resultados' in st.session_state:
-        resultados   = st.session_state['semana_resultados']
-        pallets_calc = st.session_state['semana_pallets_calc']
+        resultados       = st.session_state['semana_resultados']
+        pallets_calc     = st.session_state['semana_pallets_calc']
+        unavailable_calc = st.session_state.get('semana_unavailable', set())
 
-        st.success(f"✅ Ruta óptima calculada para {len(resultados)} día(s)")
+        aviso_no_disp = ""
+        if unavailable_calc:
+            nombres = ", ".join(CARRIER_LABELS[c] for c in sorted(unavailable_calc))
+            aviso_no_disp = f" — **sin {nombres}**"
+        st.success(f"✅ Ruta óptima calculada para {len(resultados)} día(s){aviso_no_disp}")
 
         st.markdown("### Desglose por día")
         for dia in dias_ordenados:
