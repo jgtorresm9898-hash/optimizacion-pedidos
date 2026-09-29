@@ -5,6 +5,11 @@ Yuber: precio base 20P, +$25.000 por pallet adicional hasta 24P.
 Viaje combinado Chigorodo+Apartado: +$100.000 entrada Apartado.
 Demetrio: puede hacer 2 viajes por dia (Viaje 1 y Viaje 2).
 Edwin Echavarria: Mula 24P — $1.050.000 desde Chigorodo, $600.000 desde Apartado.
+Mula nueva de Edwin (sept 2026): 21P, todas las fincas, tarifa plena
+$1.050.000 desde Chigorodo / $600.000 desde Apartado, max 2 viajes/dia.
+Regla Chigorodo (Edwin y mula nueva): si un viaje toca Chigorodo es el UNICO
+viaje de ese vehiculo en el dia (si hace mediodia en Apartado, la tarde
+tambien tiene que ser Apartado).
 """
 
 import pandas as pd
@@ -29,6 +34,8 @@ VEHICLE_DISPLAY = {
     'DEMETRIO_PATINETA_2': {'conductor': 'Demetrio', 'vehicle': 'Patineta 18P (Viaje 2)'},
     'EDWIN_MULA':          {'conductor': 'Edwin',   'vehicle': 'Mula 24P (Viaje 1)'},
     'EDWIN_MULA_2':        {'conductor': 'Edwin',   'vehicle': 'Mula 24P (Viaje 2)'},
+    'MULA_EDWIN_21':       {'conductor': 'Mula Edwin', 'vehicle': 'Mula 21P (Viaje 1)'},
+    'MULA_EDWIN_21_2':     {'conductor': 'Mula Edwin', 'vehicle': 'Mula 21P (Viaje 2)'},
 }
 
 ALL_VEHICLE_IDS = list(VEHICLE_DISPLAY.keys())
@@ -75,27 +82,49 @@ _EDWIN_APARTADO = [
     {'conductor': 'EDWIN', 'tipo': 'MULA', 'capacidad': 24, 'costo': 600000,
      'vehicle_id': 'EDWIN_MULA_2'},
 ]
+# Mula nueva de Edwin (sept 2026): vehiculo aparte con su propio conductor.
+# 21P, puede ir a TODAS las fincas, tarifa plena sin importar los pallets.
+_MULA_EDWIN_CHIGORODO = [
+    {'conductor': 'MULA EDWIN', 'tipo': 'MULA 21P', 'capacidad': 21, 'costo': 1050000,
+     'vehicle_id': 'MULA_EDWIN_21'},
+    {'conductor': 'MULA EDWIN', 'tipo': 'MULA 21P', 'capacidad': 21, 'costo': 1050000,
+     'vehicle_id': 'MULA_EDWIN_21_2'},
+]
+_MULA_EDWIN_APARTADO = [
+    {'conductor': 'MULA EDWIN', 'tipo': 'MULA 21P', 'capacidad': 21, 'costo': 600000,
+     'vehicle_id': 'MULA_EDWIN_21'},
+    {'conductor': 'MULA EDWIN', 'tipo': 'MULA 21P', 'capacidad': 21, 'costo': 600000,
+     'vehicle_id': 'MULA_EDWIN_21_2'},
+]
+
+# Pares (viaje 1, viaje 2) de los vehiculos con la regla de Chigorodo:
+# si el viaje 1 toca Chigorodo, no hay viaje 2; si el viaje 1 fue de
+# Apartado, el viaje 2 solo puede ser de Apartado.
+CHIGORODO_SINGLE_TRIP_PAIRS = [
+    ('EDWIN_MULA', 'EDWIN_MULA_2'),
+    ('MULA_EDWIN_21', 'MULA_EDWIN_21_2'),
+]
 
 VEHICLES_BY_ROUTE = {
-    ('CHIGORODO', 'PUERTO ANTIOQUIA'): _YUBER_CHIGORODO + _EDWIN_CHIGORODO + [
+    ('CHIGORODO', 'PUERTO ANTIOQUIA'): _YUBER_CHIGORODO + _EDWIN_CHIGORODO + _MULA_EDWIN_CHIGORODO + [
         {'conductor': 'DEMETRIO', 'tipo': 'PATINETA', 'capacidad': 18, 'costo': 850000,
          'vehicle_id': 'DEMETRIO_PATINETA'},
         {'conductor': 'DEMETRIO', 'tipo': 'PATINETA', 'capacidad': 18, 'costo': 850000,
          'vehicle_id': 'DEMETRIO_PATINETA_2'},
     ],
-    ('CHIGORODO', 'UNIBAN ZUNGO'): _YUBER_CHIGORODO + _EDWIN_CHIGORODO + [
+    ('CHIGORODO', 'UNIBAN ZUNGO'): _YUBER_CHIGORODO + _EDWIN_CHIGORODO + _MULA_EDWIN_CHIGORODO + [
         {'conductor': 'DEMETRIO', 'tipo': 'PATINETA', 'capacidad': 18, 'costo': 850000,
          'vehicle_id': 'DEMETRIO_PATINETA'},
         {'conductor': 'DEMETRIO', 'tipo': 'PATINETA', 'capacidad': 18, 'costo': 850000,
          'vehicle_id': 'DEMETRIO_PATINETA_2'},
     ],
-    ('APARTADO', 'PUERTO ANTIOQUIA'): _YUBER_APARTADO + _EDWIN_APARTADO + [
+    ('APARTADO', 'PUERTO ANTIOQUIA'): _YUBER_APARTADO + _EDWIN_APARTADO + _MULA_EDWIN_APARTADO + [
         {'conductor': 'DEMETRIO', 'tipo': 'PATINETA', 'capacidad': 18, 'costo': 550000,
          'vehicle_id': 'DEMETRIO_PATINETA'},
         {'conductor': 'DEMETRIO', 'tipo': 'PATINETA', 'capacidad': 18, 'costo': 550000,
          'vehicle_id': 'DEMETRIO_PATINETA_2'},
     ],
-    ('APARTADO', 'UNIBAN ZUNGO'): _YUBER_APARTADO + _EDWIN_APARTADO + [
+    ('APARTADO', 'UNIBAN ZUNGO'): _YUBER_APARTADO + _EDWIN_APARTADO + _MULA_EDWIN_APARTADO + [
         {'conductor': 'DEMETRIO', 'tipo': 'PATINETA', 'capacidad': 18, 'costo': 550000,
          'vehicle_id': 'DEMETRIO_PATINETA'},
         {'conductor': 'DEMETRIO', 'tipo': 'PATINETA', 'capacidad': 18, 'costo': 550000,
@@ -490,7 +519,7 @@ def _combined_fill(chigorodo_trips, apart_route_data):
     Modifica apart_route_data in-place reduciendo los pallets consumidos.
     """
     ENTRADA_APARTADO  = 100_000
-    CONDUCTORS_TARDE  = {'YUBER', 'DEMETRIO', 'EDWIN'}
+    CONDUCTORS_TARDE  = {'YUBER', 'DEMETRIO', 'EDWIN', 'MULA EDWIN'}
 
     for trip in chigorodo_trips:
         conductor = trip.get('conductor', '')
@@ -553,7 +582,7 @@ def _combined_fill(chigorodo_trips, apart_route_data):
             trip['costo'] = (trip['costo_base']
                              + ENTRADA_APARTADO
                              + extra * trip['costo_extra_pallet'])
-        # Demetrio/Edwin: tarifa plana, costo no cambia
+        # Demetrio/Edwin/Mula Edwin: tarifa plana, costo no cambia
 
 
 # ── Etiquetas Mediodía / Tarde ────────────────────────────────
@@ -573,7 +602,7 @@ def label_trip_times(trips):
         by_conductor.setdefault(t.get('conductor', ''), []).append(t)
 
     for conductor, ctrips in by_conductor.items():
-        if conductor not in ('DEMETRIO', 'EDWIN'):
+        if conductor not in ('DEMETRIO', 'EDWIN', 'MULA EDWIN'):
             for t in ctrips:
                 t['hora'] = 'Tarde'
             continue
@@ -597,9 +626,20 @@ def label_trip_times(trips):
 
 
 # ── Optimizacion diaria ───────────────────────────────────────
-def _optimize_phase(phase_orders, unavailable_vehicle_ids=None, enable_combined_fill=True, min_pallets=5, zone_order=None):
+def _optimize_phase(phase_orders, unavailable_vehicle_ids=None, enable_combined_fill=True, min_pallets=5, zone_order=None,
+                    apartado_only_vids=None):
+    """apartado_only_vids: vehiculos que en esta fase solo pueden hacer rutas
+    de APARTADO (regla Chigorodo: ya hicieron un viaje de Apartado en el
+    mediodia, asi que la tarde no puede tocar Chigorodo)."""
     if unavailable_vehicle_ids is None:
         unavailable_vehicle_ids = set()
+    apartado_only_vids = set(apartado_only_vids or ())
+
+    def _route_vehicles(rk):
+        vs = VEHICLES_BY_ROUTE.get(rk, [])
+        if rk[0] == 'CHIGORODO' and apartado_only_vids:
+            vs = [v for v in vs if v.get('vehicle_id', '') not in apartado_only_vids]
+        return vs
 
     route_groups = {}
     for farm, port_data in phase_orders.items():
@@ -618,7 +658,7 @@ def _optimize_phase(phase_orders, unavailable_vehicle_ids=None, enable_combined_
     used_vehicle_ids = set()
 
     _route_avail = {
-        rk: [v for v in VEHICLES_BY_ROUTE.get(rk, [])
+        rk: [v for v in _route_vehicles(rk)
              if v.get('vehicle_id', '') not in unavailable_vehicle_ids]
         for rk in route_groups
     }
@@ -668,7 +708,7 @@ def _optimize_phase(phase_orders, unavailable_vehicle_ids=None, enable_combined_
             vid = v.get('vehicle_id', '')
             return vid not in unavailable_vehicle_ids and vid not in used_vehicle_ids
 
-        vehicles = [v for v in VEHICLES_BY_ROUTE.get((zone, port), []) if avail(v)]
+        vehicles = [v for v in _route_vehicles((zone, port)) if avail(v)]
         if not vehicles:
             continue
 
@@ -983,8 +1023,8 @@ def optimize_day(day_orders, unavailable_vehicle_ids=None, relaxed=False, cap_me
     if unavailable_vehicle_ids is None:
         unavailable_vehicle_ids = set()
 
-    VIAJE2_VIDS = {'DEMETRIO_PATINETA_2', 'EDWIN_MULA_2'}
-    VIAJE1_VIDS = {'DEMETRIO_PATINETA', 'EDWIN_MULA'}
+    VIAJE2_VIDS = {'DEMETRIO_PATINETA_2', 'EDWIN_MULA_2', 'MULA_EDWIN_21_2'}
+    VIAJE1_VIDS = {'DEMETRIO_PATINETA', 'EDWIN_MULA', 'MULA_EDWIN_21'}
     TARDE_MIN   = 0 if relaxed else 5
 
     def _mediodia_min(cap):
@@ -1010,12 +1050,31 @@ def optimize_day(day_orders, unavailable_vehicle_ids=None, relaxed=False, cap_me
         md_vids    = {t['vehicle_id'] for t in md}
         unused_v1  = VIAJE1_VIDS - md_vids - unavailable_vehicle_ids
         tarde_dem  = _compute_tarde_demand(day_orders, md)
+        # Regla Chigorodo (Edwin y Mula Edwin): si el viaje de mediodia tocó
+        # Chigorodo, no hay viaje de tarde; si fue de Apartado, la tarde
+        # solo puede ser Apartado.
+        chig_blocked = set()
+        apto_only    = set()
+        for v1, v2 in CHIGORODO_SINGLE_TRIP_PAIRS:
+            md_v1 = [t for t in md if t.get('vehicle_id') == v1
+                     and t.get('trip_type') == 'export']
+            if not md_v1:
+                continue
+            touches_chig = any(
+                t.get('zone') == 'CHIGORODO'
+                or any(FARM_ZONES.get(f) == 'CHIGORODO' for f in t.get('farms', {}))
+                for t in md_v1)
+            if touches_chig:
+                chig_blocked.add(v2)
+            else:
+                apto_only.add(v2)
         td = _optimize_phase(
             tarde_dem,
-            unavailable_vehicle_ids=unavailable_vehicle_ids | md_vids | unused_v1,
+            unavailable_vehicle_ids=unavailable_vehicle_ids | md_vids | unused_v1 | chig_blocked,
             enable_combined_fill=True,
             min_pallets=TARDE_MIN,
             zone_order=zone_order,
+            apartado_only_vids=apto_only,
         )
         td = [t for t in td if t.get('trip_type') != 'export'
               or (t.get('pallets_cargados', 0) > 0

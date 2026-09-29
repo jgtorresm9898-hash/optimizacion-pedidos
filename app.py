@@ -3,7 +3,6 @@ Punto de entrada de la app — define las páginas y la navegación.
 """
 import streamlit as st
 from page_diario import render as render_diario
-from page_semanal import render as render_semanal
 from page_ruta_semana import render as render_ruta_semana
 
 st.set_page_config(
@@ -25,12 +24,6 @@ pagina_ruta_semana = st.Page(
     icon="🗓️",
     url_path="ruta-semana",
 )
-pagina_semanal = st.Page(
-    render_semanal,
-    title="Optimización semanal",
-    icon="📅",
-    url_path="optimizacion-semanal",
-)
 
-pg = st.navigation([pagina_diaria, pagina_ruta_semana, pagina_semanal])
+pg = st.navigation([pagina_diaria, pagina_ruta_semana])
 pg.run()

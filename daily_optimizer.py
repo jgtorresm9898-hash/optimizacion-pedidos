@@ -28,6 +28,16 @@ Logica validada con el usuario (julio-agosto 2026):
   de Chigorodo ni de Apartado. Si NO toca Chigorodo para nada ese dia
   (todos sus viajes son puro Apartado: Dona Francia, Chispero,
   Salvamento), si alcanza a hacer sus 2 viajes normales.
+- Mula nueva de Edwin (septiembre 2026): vehiculo aparte, con su propio
+  conductor, puede salir el mismo dia que el carro actual de Edwin.
+    Tope 21P, puede ir a TODAS las fincas (incluye San Bartolo y Santa
+    Maria) y cuartear cualquier combinacion.
+    Tarifa PLENA por viaje, sin importar cuantos pallets lleve:
+    $1.050.000 si el viaje toca Chigorodo (San Bartolo o Juana Pio),
+    $600.000 si es puro Apartado. + recargo normal de cuarteo.
+    Maximo 2 viajes/dia; misma regla de Chigorodo que Edwin: si un viaje
+    toca Chigorodo, es el UNICO del dia.
+    Tiene su propio boton de disponibilidad ('MULA_EDWIN').
 - Recargo por cuarteo: SE COBRA POR CADA PARADA ADICIONAL, no es un monto
   fijo por viaje. Un viaje de 1 sola finca no paga recargo; de 2 fincas
   paga $100.000 (1 parada extra); de 3 fincas paga $200.000 (2 paradas
@@ -61,13 +71,18 @@ ALL_FARMS = ['JUANA PIO', 'DOÑA FRANCIA', 'SANTA MARIA', 'CHISPERO', 'SALVAMENT
 CAP_YUBER, CAP_DEMETRIO, CAP_EDWIN = 26, 18, 24
 YUBER_SALVAMENTO_CAP = 24  # la mula nueva (26P) de Yuber no entra a Salvamento -- tope 24P
 
-CARRIERS = ['YUBER', 'DEMETRIO', 'EDWIN']
-CARRIER_LABELS = {'YUBER': 'Yuber', 'DEMETRIO': 'Demetrio', 'EDWIN': 'Edwin'}
+CAP_MULA_EDWIN = 21  # mula nueva de Edwin (sept 2026)
+
+CARRIERS = ['YUBER', 'DEMETRIO', 'EDWIN', 'MULA_EDWIN']
+CARRIER_LABELS = {'YUBER': 'Yuber', 'DEMETRIO': 'Demetrio', 'EDWIN': 'Edwin',
+                  'MULA_EDWIN': 'Mula Edwin 21P'}
 
 DEMETRIO_A_COST = 850_000
 DEMETRIO_B_COST = 550_000
 EDWIN_B_COST = 600_000
 EDWIN_JP_COST = 1_050_000  # Edwin con Juana Pio (mezclada o no con grupo barato)
+MULA_EDWIN_CHIG_COST = 1_050_000  # mula nueva: viaje que toca Chigorodo (tarifa plena)
+MULA_EDWIN_APTO_COST = 600_000    # mula nueva: viaje puro Apartado (tarifa plena)
 CUARTEO_SURCHARGE = 100_000  # recargo por viaje que mezcla 2+ fincas
 YUBER_OVERAGE = 25_000       # por pallet por encima de 20P, en Yuber (ambos grupos)
 YUBER_INCLUDED = 20          # pallets incluidos en la tarifa base de Yuber
@@ -141,7 +156,7 @@ def optimize_day(pallets, unavailable_carriers=None):
     pallets: dict con llaves 'JUANA PIO', 'DOÑA FRANCIA', 'SANTA MARIA',
              'CHISPERO', 'SALVAMENTO', 'SAN BARTOLO' (0 si no hay pedido).
     unavailable_carriers: set/lista opcional con los conductores NO
-             disponibles ese dia, de entre 'YUBER', 'DEMETRIO', 'EDWIN'
+             disponibles ese dia, de entre 'YUBER', 'DEMETRIO', 'EDWIN', 'MULA_EDWIN'
              (p.ej. {'DEMETRIO'} si tiene el carro varado). Sus cupos de
              viaje simplemente no se crean, asi que el solver reparte todo
              el pedido entre los conductores que si queden disponibles.
@@ -166,6 +181,7 @@ def optimize_day(pallets, unavailable_carriers=None):
     n_a_dem   = 0 if 'DEMETRIO' in unavailable_carriers else 2   # tope real de Demetrio (compartido con grupo B abajo)
     n_b_dem   = 0 if 'DEMETRIO' in unavailable_carriers else 2
     n_edwin   = 0 if 'EDWIN' in unavailable_carriers else 2      # Edwin: 2 viajes/dia si son de Apartado, pero solo 1 si alguno toca Chigorodo
+    n_mula_e  = 0 if 'MULA_EDWIN' in unavailable_carriers else 2 # Mula nueva de Edwin: misma regla de viajes que Edwin
 
     slots = []  # cada entrada: dict con toda la info del cupo ya resuelta
 
@@ -301,6 +317,37 @@ def optimize_day(pallets, unavailable_carriers=None):
     _break_symmetry(pool)
     slots += pool
 
+    # ── Cupos Mula nueva de Edwin: TODAS las fincas, 21P, tarifa plena ──
+    pool = []
+    for i in range(n_mula_e):
+        amt    = {}
+        in_bin = {}
+        for f in ALL_FARMS:
+            amt[f]    = model.NewIntVar(0, min(d[f], CAP_MULA_EDWIN), f'm_{f}_{i}')
+            in_bin[f] = model.NewBoolVar(f'm_in_{f}_{i}')
+            model.Add(amt[f] <= CAP_MULA_EDWIN * in_bin[f]); model.Add(amt[f] >= in_bin[f])
+        total = model.NewIntVar(0, CAP_MULA_EDWIN, f'm_tot_{i}')
+        model.Add(total == sum(amt.values()))
+        model.Add(total <= CAP_MULA_EDWIN)
+        chig_in   = _or_bin_from_list(model, [in_bin[SB], in_bin[JP]], f'm_chig_{i}')
+        group_act = _or_bin_from_list(model, [in_bin[f] for f in GROUP_B], f'm_gact_{i}')
+        b_only    = model.NewBoolVar(f'm_bonly_{i}')
+        model.Add(b_only <= group_act)
+        model.Add(b_only <= 1 - chig_in)
+        model.Add(b_only >= group_act - chig_in)
+        # chig_in solo puede valer 1 si de verdad hay SB o JP en el viaje
+        model.Add(chig_in <= in_bin[SB] + in_bin[JP])
+        extra    = _extra_stops(model, list(in_bin.values()), f'm_extra_{i}')
+        over_two = _over_two_farms(model, list(in_bin.values()), f'm_ot_{i}')
+        active   = _or_bin_from_list(model, list(in_bin.values()), f'm_act_{i}')
+        cost = model.NewIntVar(0, 3_000_000, f'm_cost_{i}')
+        model.Add(cost == MULA_EDWIN_CHIG_COST * chig_in + MULA_EDWIN_APTO_COST * b_only
+                  + CUARTEO_SURCHARGE * extra)
+        pool.append({'carrier': CARRIER_LABELS['MULA_EDWIN'], 'farms': amt, 'active': active, 'cost': cost,
+                     'total': total, 'chig_in': chig_in, 'extra': extra, 'over_two': over_two})
+    _break_symmetry(pool)
+    slots += pool
+
     # ── Conservacion de demanda por finca ──
     for f in ALL_FARMS:
         model.Add(sum(s['farms'][f] for s in slots if f in s['farms']) == d[f])
@@ -321,6 +368,12 @@ def optimize_day(pallets, unavailable_carriers=None):
     # Si no hay ningun viaje con Juana Pio, el limite normal de 2 queda
     # intacto.
     model.Add(sum(s['active'] for s in edwin_slots) + sum(s['jp_in'] for s in edwin_slots) <= 2)
+
+    # Mula nueva de Edwin: misma logica -- max 2 viajes/dia, pero si alguno
+    # toca Chigorodo (San Bartolo o Juana Pio) es el unico del dia.
+    mula_slots = [s for s in slots if s['carrier'] == CARRIER_LABELS['MULA_EDWIN']]
+    if mula_slots:
+        model.Add(sum(s['active'] for s in mula_slots) + sum(s['chig_in'] for s in mula_slots) <= 2)
 
     # ── Desempate entre soluciones igual de baratas ──
     # El costo SIEMPRE manda -- estos criterios solo deciden cual de varias
