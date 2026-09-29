@@ -5,20 +5,20 @@ Logica validada con el usuario (julio-agosto 2026):
 - Grupo "caro" (San Bartolo + Juana Pio), SIN Edwin. El costo de cada viaje
   depende solo del TOTAL de pallets que lleve (no de que finca vengan), asi
   que se optimiza como llenado de camiones sobre la suma de ambas fincas.
-    Yuber:    $1.050.000 hasta 20P, +$25.000 por pallet adicional, tope 26P (mula nueva).
+    Yuber:    $1.050.000 hasta 20P, +$37.500 por pallet adicional, tope 26P (mula nueva).
     Demetrio: $850.000 fijo, tope 18P.
 - Grupo "barato" (Dona Francia, Chispero, Santa Maria, Salvamento), con
   Edwin disponible salvo para Santa Maria. Aqui si importa la finca porque
   hay minimos de pallets para poder cuartear.
     Yuber:    $630.000 hasta 20P, +$25.000 por pallet adicional, tope 26P.
     Demetrio: $550.000 fijo, tope 18P.
-    Edwin:    $600.000 fijo, tope 24P (no Santa Maria).
+    Edwin:    $610.725 fijo, tope 24P (no Santa Maria).
 - Cuarteo (combinar 2+ fincas en un viaje): sin minimo de pallets por finca
   en ningun grupo -- el optimizador puede combinar cualquier cantidad si
   sale mas barato.
 - Demetrio: maximo 2 viajes/dia, COMPARTIDOS entre ambos grupos (1 camion).
 - Edwin: maximo 2 viajes/dia, solo aplica al grupo barato (1 camion).
-- Edwin SI puede recoger Juana Pio (habilitado agosto 2026), a $1.050.000 fijo
+- Edwin SI puede recoger Juana Pio (habilitado agosto 2026), a $1.000.000 fijo
   (tarifa Chigorodo), tope 24P, y puede cuartear Juana Pio con fincas del
   grupo barato (Dona Francia, Chispero, Salvamento) en el mismo viaje. Edwin
   sigue SIN poder recoger San Bartolo ni Santa Maria.
@@ -33,17 +33,16 @@ Logica validada con el usuario (julio-agosto 2026):
     Tope 21P, puede ir a TODAS las fincas (incluye San Bartolo y Santa
     Maria) y cuartear cualquier combinacion.
     Tarifa PLENA por viaje, sin importar cuantos pallets lleve:
-    $1.050.000 si el viaje toca Chigorodo (San Bartolo o Juana Pio),
-    $600.000 si es puro Apartado. + recargo normal de cuarteo.
+    $1.000.000 si el viaje toca Chigorodo (San Bartolo o Juana Pio),
+    $610.725 si es puro Apartado. NO cobra cuarteo.
     Maximo 2 viajes/dia; misma regla de Chigorodo que Edwin: si un viaje
     toca Chigorodo, es el UNICO del dia.
     Tiene su propio boton de disponibilidad ('MULA_EDWIN').
-- Recargo por cuarteo: SE COBRA POR CADA PARADA ADICIONAL, no es un monto
-  fijo por viaje. Un viaje de 1 sola finca no paga recargo; de 2 fincas
-  paga $100.000 (1 parada extra); de 3 fincas paga $200.000 (2 paradas
-  extra); de 4 fincas paga $300.000 (3 paradas extra). Formula: $100.000 x
-  (numero de fincas distintas en el viaje - 1). Aplica a cualquier
-  transportista, cualquier grupo.
+- Cuarteo (tarifas de septiembre 2026):
+    Demetrio, Edwin y Mula Edwin: NUNCA cobran cuarteo.
+    Yuber: cuartear fincas del MISMO municipio (solo Chigorodo o solo
+    Apartado) no tiene recargo. Solo se cobra cuarteo si el viaje mezcla
+    fincas de Chigorodo y de Apartado ($100.000 por parada).
 
 Motor de calculo (agosto 2026): antes esto se resolvia con combinatoria
 hecha a mano (particiones + memoizacion). Esa version tenia un hueco real:
@@ -79,12 +78,19 @@ CARRIER_LABELS = {'YUBER': 'Yuber', 'DEMETRIO': 'Demetrio', 'EDWIN': 'Edwin',
 
 DEMETRIO_A_COST = 850_000
 DEMETRIO_B_COST = 550_000
-EDWIN_B_COST = 600_000
-EDWIN_JP_COST = 1_050_000  # Edwin con Juana Pio (mezclada o no con grupo barato)
-MULA_EDWIN_CHIG_COST = 1_050_000  # mula nueva: viaje que toca Chigorodo (tarifa plena)
-MULA_EDWIN_APTO_COST = 600_000    # mula nueva: viaje puro Apartado (tarifa plena)
-CUARTEO_SURCHARGE = 100_000  # recargo por viaje que mezcla 2+ fincas
-YUBER_OVERAGE = 25_000       # por pallet por encima de 20P, en Yuber (ambos grupos)
+EDWIN_B_COST = 610_725
+EDWIN_JP_COST = 1_000_000  # Edwin con Juana Pio (mezclada o no con grupo barato)
+MULA_EDWIN_CHIG_COST = 1_000_000  # mula nueva: viaje que toca Chigorodo (tarifa plena)
+MULA_EDWIN_APTO_COST = 610_725    # mula nueva: viaje puro Apartado (tarifa plena)
+CUARTEO_SURCHARGE = 100_000  # Yuber: por parada, solo si el viaje mezcla Chigorodo y Apartado
+YUBER_OVERAGE_CHIG = 37_500  # Yuber Chigorodo: por pallet por encima de 20P
+YUBER_OVERAGE_APTO = 25_000  # Yuber Apartado: por pallet por encima de 20P
+# Freno interno de cuarteo (NO se cobra, no aparece en ningun total): la app
+# "hace de cuenta" que cada parada extra de un viaje cuesta $100.000, igual
+# que la regla vieja. Asi solo cuartea si de verdad ahorra mas que eso y las
+# rutas quedan tan ordenadas como antes. Los costos que se muestran son los
+# reales (sin este freno).
+FRENO_CUARTEO = 100_000
 YUBER_INCLUDED = 20          # pallets incluidos en la tarifa base de Yuber
 
 EDWIN_EXCLUDED_B = {'SANTA MARIA'}
@@ -93,13 +99,13 @@ EDWIN_EXCLUDED_B = {'SANTA MARIA'}
 def yuber_A(n):
     if n <= 0:
         return 0
-    return 1_050_000 + max(0, n - YUBER_INCLUDED) * YUBER_OVERAGE
+    return 1_050_000 + max(0, n - YUBER_INCLUDED) * YUBER_OVERAGE_CHIG
 
 
 def yuber_B(n):
     if n <= 0:
         return 0
-    return 630_000 + max(0, n - YUBER_INCLUDED) * YUBER_OVERAGE
+    return 630_000 + max(0, n - YUBER_INCLUDED) * YUBER_OVERAGE_APTO
 
 
 # ───────────────────────── Modelo CP-SAT ─────────────────────────
@@ -213,7 +219,7 @@ def optimize_day(pallets, unavailable_carriers=None):
         over = model.NewIntVar(0, CAP_YUBER, f'ay_over_{i}')
         model.Add(over >= total - YUBER_INCLUDED)
         cost = model.NewIntVar(0, 3_000_000, f'ay_cost_{i}')
-        model.Add(cost == 1_050_000 * active + YUBER_OVERAGE * over + CUARTEO_SURCHARGE * extra)
+        model.Add(cost == 1_050_000 * active + YUBER_OVERAGE_CHIG * over)  # mismo municipio: sin cuarteo
         pool.append({'carrier': 'Yuber', 'farms': {SB: sb, JP: jp}, 'active': active, 'cost': cost, 'total': total,
                      'extra': extra, 'over_two': over_two})
     _break_symmetry(pool)
@@ -234,7 +240,7 @@ def optimize_day(pallets, unavailable_carriers=None):
         extra  = _extra_stops(model, [sb_in, jp_in], f'ad_extra_{i}')
         over_two = _over_two_farms(model, [sb_in, jp_in], f'ad_ot_{i}')
         cost = model.NewIntVar(0, 2_000_000, f'ad_cost_{i}')
-        model.Add(cost == DEMETRIO_A_COST * active + CUARTEO_SURCHARGE * extra)
+        model.Add(cost == DEMETRIO_A_COST * active)  # Demetrio no cobra cuarteo
         pool.append({'carrier': 'Demetrio', 'farms': {SB: sb, JP: jp}, 'active': active, 'cost': cost, 'total': total,
                      'extra': extra, 'over_two': over_two})
     _break_symmetry(pool)
@@ -261,7 +267,7 @@ def optimize_day(pallets, unavailable_carriers=None):
         over = model.NewIntVar(0, CAP_YUBER, f'by_over_{i}')
         model.Add(over >= total - YUBER_INCLUDED)
         cost = model.NewIntVar(0, 3_000_000, f'by_cost_{i}')
-        model.Add(cost == 630_000 * active + YUBER_OVERAGE * over + CUARTEO_SURCHARGE * extra)
+        model.Add(cost == 630_000 * active + YUBER_OVERAGE_APTO * over)  # mismo municipio: sin cuarteo
         pool.append({'carrier': 'Yuber', 'farms': amt, 'active': active, 'cost': cost, 'total': total,
                      'extra': extra, 'over_two': over_two})
     _break_symmetry(pool)
@@ -282,7 +288,7 @@ def optimize_day(pallets, unavailable_carriers=None):
         extra  = _extra_stops(model, list(in_bin.values()), f'bd_extra_{i}')
         over_two = _over_two_farms(model, list(in_bin.values()), f'bd_ot_{i}')
         cost = model.NewIntVar(0, 2_000_000, f'bd_cost_{i}')
-        model.Add(cost == DEMETRIO_B_COST * active + CUARTEO_SURCHARGE * extra)
+        model.Add(cost == DEMETRIO_B_COST * active)  # Demetrio no cobra cuarteo
         pool.append({'carrier': 'Demetrio', 'farms': amt, 'active': active, 'cost': cost, 'total': total,
                      'extra': extra, 'over_two': over_two})
     _break_symmetry(pool)
@@ -311,7 +317,7 @@ def optimize_day(pallets, unavailable_carriers=None):
         over_two = _over_two_farms(model, [in_bin[JP], in_bin[DF], in_bin[CH], in_bin[SV]], f'e_ot_{i}')
         active = _or_bin_from_list(model, list(in_bin.values()), f'e_act_{i}')
         cost = model.NewIntVar(0, 2_000_000, f'e_cost_{i}')
-        model.Add(cost == EDWIN_JP_COST * jp_in + EDWIN_B_COST * b_only + CUARTEO_SURCHARGE * extra)
+        model.Add(cost == EDWIN_JP_COST * jp_in + EDWIN_B_COST * b_only)  # Edwin no cobra cuarteo
         pool.append({'carrier': 'Edwin', 'farms': amt, 'active': active, 'cost': cost, 'total': total, 'jp_in': jp_in,
                      'extra': extra, 'over_two': over_two})
     _break_symmetry(pool)
@@ -341,8 +347,7 @@ def optimize_day(pallets, unavailable_carriers=None):
         over_two = _over_two_farms(model, list(in_bin.values()), f'm_ot_{i}')
         active   = _or_bin_from_list(model, list(in_bin.values()), f'm_act_{i}')
         cost = model.NewIntVar(0, 3_000_000, f'm_cost_{i}')
-        model.Add(cost == MULA_EDWIN_CHIG_COST * chig_in + MULA_EDWIN_APTO_COST * b_only
-                  + CUARTEO_SURCHARGE * extra)
+        model.Add(cost == MULA_EDWIN_CHIG_COST * chig_in + MULA_EDWIN_APTO_COST * b_only)  # no cobra cuarteo
         pool.append({'carrier': CARRIER_LABELS['MULA_EDWIN'], 'farms': amt, 'active': active, 'cost': cost,
                      'total': total, 'chig_in': chig_in, 'extra': extra, 'over_two': over_two})
     _break_symmetry(pool)
@@ -388,7 +393,8 @@ def optimize_day(pallets, unavailable_carriers=None):
     model.Add(total_over_two == sum(s['over_two'] for s in slots))
     total_stops = model.NewIntVar(0, 10_000, 'total_stops')
     model.Add(total_stops == sum(s['active'] for s in slots) + sum(s['extra'] for s in slots))
-    model.Minimize(sum(s['cost'] for s in slots) * 1000 + total_over_two * 50 + total_stops)
+    model.Minimize((sum(s['cost'] for s in slots) + FRENO_CUARTEO * sum(s['extra'] for s in slots)) * 1000
+                   + total_over_two * 50 + total_stops)
 
     solver = cp_model.CpSolver()
     # Un solo hilo de busqueda: con varios hilos en paralelo (num_search_workers
