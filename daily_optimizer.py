@@ -39,6 +39,16 @@ Logica validada con el usuario (julio-agosto 2026):
     Maximo 2 viajes/dia; misma regla de Chigorodo que Edwin: si un viaje
     toca Chigorodo, es el UNICO del dia.
     Tiene su propio boton de disponibilidad ('MULA_EDWIN').
+- Escenario "Optimizacion con dos viajes Edwin" (octubre 2026,
+  forzar_trailer_dos_viajes=True): el Trailer Azul hace SI O SI un viaje
+  LLENO (24P) de Chigorodo (San Bartolo / Juana Pio) y otro LLENO (24P) de
+  Apartado (Doña Francia, Chispero, Santa Maria, Salvamento) el mismo dia
+  -- aqui NO aplica la regla de "si toca Chigorodo es el unico viaje".
+  Si un municipio no alcanza a sumar 24P ese dia, ese viaje no se hace y
+  el Trailer queda con 1 solo viaje (o ninguno); lo de ese municipio se
+  reparte normal entre los demas. Si el Trailer esta marcado no
+  disponible, el escenario queda igual a la optimizacion normal. El resto
+  del pedido se reparte de la forma mas barata entre los demas.
 - Cuarteo (tarifas de septiembre 2026):
     Demetrio, Edwin y Edwin Trailer Azul: NUNCA cobran cuarteo.
     Yuber: cuartear fincas del MISMO municipio (solo Chigorodo o solo
@@ -158,7 +168,29 @@ def _over_two_farms(model, bins, name):
     return r
 
 
-def optimize_day(pallets, unavailable_carriers=None):
+def trailer_forced_plan(pallets, unavailable_carriers=None):
+    """Que viajes obligados le tocan al Trailer Azul en el escenario
+    'dos viajes Edwin'. Devuelve (viajes, notas): viajes es una lista de
+    ('CHIG'|'APTO'), notas explica en palabras lo que no se pudo forzar."""
+    unavailable_carriers = set(unavailable_carriers or [])
+    d = {f: int(pallets.get(f, 0) or 0) for f in ALL_FARMS}
+    if 'MULA_EDWIN' in unavailable_carriers:
+        return [], [f"{CARRIER_LABELS['MULA_EDWIN']} está marcado como no disponible: "
+                    "este escenario queda igual a la optimización normal."]
+    viajes, notas = [], []
+    for code, nombre, farms in (('CHIG', 'Chigorodó', GROUP_A), ('APTO', 'Apartadó', GROUP_B)):
+        tot = sum(d[f] for f in farms)
+        if tot >= CAP_MULA_EDWIN:
+            viajes.append(code)
+        elif tot == 0:
+            notas.append(f"No hay pedido en {nombre}: ese día el Tráiler Azul no hace viaje de {nombre}.")
+        else:
+            notas.append(f"{nombre} solo tiene {tot}P (no alcanza para un viaje lleno de {CAP_MULA_EDWIN}P): "
+                         f"el Tráiler Azul no hace viaje de {nombre} y esos pallets se reparten normal.")
+    return viajes, notas
+
+
+def optimize_day(pallets, unavailable_carriers=None, forzar_trailer_dos_viajes=False):
     """
     pallets: dict con llaves 'JUANA PIO', 'DOÑA FRANCIA', 'SANTA MARIA',
              'CHISPERO', 'SALVAMENTO', 'SAN BARTOLO' (0 si no hay pedido).
@@ -167,13 +199,20 @@ def optimize_day(pallets, unavailable_carriers=None):
              (p.ej. {'DEMETRIO'} si tiene el carro varado). Sus cupos de
              viaje simplemente no se crean, asi que el solver reparte todo
              el pedido entre los conductores que si queden disponibles.
+    forzar_trailer_dos_viajes: escenario 'Optimizacion con dos viajes
+             Edwin' -- el Trailer Azul hace exactamente un viaje lleno
+             (24P) de Chigorodo y uno lleno de Apartado (solo los que
+             alcancen 24P ese dia), y nada mas. Ver trailer_forced_plan.
     Retorna: {'trips': [{'carrier', 'total', 'farms': {finca: pallets}, 'cost'}],
-              'total_cost': int}
+              'total_cost': int, 'notas': [str]}
     """
     unavailable_carriers = set(unavailable_carriers or [])
     d = {f: int(pallets.get(f, 0) or 0) for f in ALL_FARMS}
+    forced_trips, notas = [], []
+    if forzar_trailer_dos_viajes:
+        forced_trips, notas = trailer_forced_plan(d, unavailable_carriers)
     if sum(d.values()) == 0:
-        return {'trips': [], 'total_cost': 0}
+        return {'trips': [], 'total_cost': 0, 'notas': notas}
 
     SB, JP = 'SAN BARTOLO', 'JUANA PIO'
     DF, CH, SM, SV = 'DOÑA FRANCIA', 'CHISPERO', 'SANTA MARIA', 'SALVAMENTO'
@@ -189,6 +228,8 @@ def optimize_day(pallets, unavailable_carriers=None):
     n_b_dem   = 0 if 'DEMETRIO' in unavailable_carriers else 2
     n_edwin   = 0 if 'EDWIN' in unavailable_carriers else 2      # Edwin: 2 viajes/dia si son de Apartado, pero solo 1 si alguno toca Chigorodo
     n_mula_e  = 0 if 'MULA_EDWIN' in unavailable_carriers else 2 # Mula nueva de Edwin: misma regla de viajes que Edwin
+    if forzar_trailer_dos_viajes:
+        n_mula_e = 0  # en el escenario forzado sus viajes se arman aparte (abajo)
 
     slots = []  # cada entrada: dict con toda la info del cupo ya resuelta
 
@@ -354,6 +395,26 @@ def optimize_day(pallets, unavailable_carriers=None):
     _break_symmetry(pool)
     slots += pool
 
+    # ── Escenario 'dos viajes Edwin': viajes obligados del Trailer Azul ──
+    # Un cupo por municipio que alcance 24P: solo fincas de ese municipio,
+    # exactamente 24P (lleno), tarifa plena, siempre activo. No aplica la
+    # regla de 'si toca Chigorodo es el unico del dia'.
+    for code in forced_trips:
+        farms_m = GROUP_A if code == 'CHIG' else GROUP_B
+        amt, in_bin = {}, {}
+        for f in farms_m:
+            amt[f]    = model.NewIntVar(0, min(d[f], CAP_MULA_EDWIN), f'mf_{code}_{f}')
+            in_bin[f] = model.NewBoolVar(f'mf_in_{code}_{f}')
+            model.Add(amt[f] <= CAP_MULA_EDWIN * in_bin[f]); model.Add(amt[f] >= in_bin[f])
+        total = model.NewIntVar(CAP_MULA_EDWIN, CAP_MULA_EDWIN, f'mf_tot_{code}')
+        model.Add(total == sum(amt.values()))
+        cost_val = MULA_EDWIN_CHIG_COST if code == 'CHIG' else MULA_EDWIN_APTO_COST
+        extra    = _extra_stops(model, list(in_bin.values()), f'mf_extra_{code}')
+        over_two = _over_two_farms(model, list(in_bin.values()), f'mf_ot_{code}')
+        slots.append({'carrier': CARRIER_LABELS['MULA_EDWIN'], 'farms': amt,
+                      'active': model.NewConstant(1), 'cost': model.NewConstant(cost_val),
+                      'total': total, 'extra': extra, 'over_two': over_two, 'forced': True})
+
     # ── Conservacion de demanda por finca ──
     for f in ALL_FARMS:
         model.Add(sum(s['farms'][f] for s in slots if f in s['farms']) == d[f])
@@ -377,7 +438,7 @@ def optimize_day(pallets, unavailable_carriers=None):
 
     # Mula nueva de Edwin: misma logica -- max 2 viajes/dia, pero si alguno
     # toca Chigorodo (San Bartolo o Juana Pio) es el unico del dia.
-    mula_slots = [s for s in slots if s['carrier'] == CARRIER_LABELS['MULA_EDWIN']]
+    mula_slots = [s for s in slots if s['carrier'] == CARRIER_LABELS['MULA_EDWIN'] and not s.get('forced')]
     if mula_slots:
         model.Add(sum(s['active'] for s in mula_slots) + sum(s['chig_in'] for s in mula_slots) <= 2)
 
@@ -434,4 +495,4 @@ def optimize_day(pallets, unavailable_carriers=None):
         })
 
     total_cost = sum(t['cost'] for t in trips)
-    return {'trips': trips, 'total_cost': total_cost}
+    return {'trips': trips, 'total_cost': total_cost, 'notas': notas}

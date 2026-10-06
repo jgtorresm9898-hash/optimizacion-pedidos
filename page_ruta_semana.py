@@ -50,6 +50,8 @@ def _conductor_toggles(key_prefix):
 
 def _render_day_result(dia, pallets, resultado):
     st.markdown(f"#### {dia}")
+    for nota in resultado.get('notas', []):
+        st.info(nota, icon="ℹ️")
     for t in resultado['trips']:
         fincas_str = " + ".join(
             f"{FARM_LABELS.get(f, f)} {p}P" for f, p in t['farms'].items()
@@ -136,17 +138,21 @@ def render():
         with st.spinner("Calculando la ruta más económica de cada día… con pedidos grandes puede tardar unos segundos."):
             try:
                 resultados = {d: optimize_day(p, unavailable_carriers=unavailable) for d, p in dias_con_pedido.items()}
+                resultados_e2 = {d: optimize_day(p, unavailable_carriers=unavailable, forzar_trailer_dos_viajes=True)
+                                 for d, p in dias_con_pedido.items()}
             except RuntimeError as e:
                 st.error(f"⚠️ {e}")
                 st.stop()
 
         st.session_state['semana_resultados']   = resultados
+        st.session_state['semana_resultados_e2'] = resultados_e2
         st.session_state['semana_pallets_calc'] = dias_con_pedido
         st.session_state['semana_unavailable']  = unavailable
 
     # ── Resultados (persisten entre reruns hasta el próximo cálculo) ──
     if 'semana_resultados' in st.session_state:
         resultados       = st.session_state['semana_resultados']
+        resultados_e2    = st.session_state.get('semana_resultados_e2', {})
         pallets_calc     = st.session_state['semana_pallets_calc']
         unavailable_calc = st.session_state.get('semana_unavailable', set())
 
@@ -156,28 +162,57 @@ def render():
             aviso_no_disp = f" — **sin {nombres}**"
         st.success(f"✅ Ruta óptima calculada para {len(resultados)} día(s){aviso_no_disp}")
 
-        st.markdown("### Desglose por día")
+        st.markdown("### Optimización normal")
         for dia in dias_ordenados:
             if dia in resultados:
                 _render_day_result(dia, pallets_calc[dia], resultados[dia])
 
         st.divider()
 
+        # ── Cuadro 2: Edwin Tráiler Azul con dos viajes sí o sí ──
+        if resultados_e2:
+            st.markdown("### Optimización con dos viajes Edwin")
+            st.caption("El Edwin Tráiler Azul hace sí o sí un viaje lleno (24P) de Chigorodó y otro "
+                       "lleno de Apartadó cada día. El resto se reparte de la forma más barata.")
+            for dia in dias_ordenados:
+                if dia in resultados_e2:
+                    _render_day_result(dia, pallets_calc[dia], resultados_e2[dia])
+
+            st.divider()
+
         # ── Consolidado de la semana ─────────────────────────────
         total_pallets = sum(sum(p.values()) for p in pallets_calc.values())
         total_costo   = sum(r['total_cost'] for r in resultados.values())
+        total_e2      = sum(r['total_cost'] for r in resultados_e2.values()) if resultados_e2 else None
 
         st.markdown("### 📊 Consolidado de la semana")
-        c1, c2 = st.columns(2)
-        c1.metric("Total pallets semana", f"{total_pallets}P")
-        c2.metric("Costo total semana", money(total_costo))
+        if total_e2 is None:
+            c1, c2 = st.columns(2)
+            c1.metric("Total pallets semana", f"{total_pallets}P")
+            c2.metric("Costo total semana", money(total_costo))
+        else:
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Total pallets semana", f"{total_pallets}P")
+            c2.metric("Optimización normal", money(total_costo))
+            c3.metric("Con dos viajes Edwin", money(total_e2))
+            diff = total_e2 - total_costo
+            c4.metric("Diferencia", (f"+{money(diff)}" if diff > 0 else f"-{money(-diff)}" if diff < 0 else "$0"))
+            if diff > 0:
+                st.warning(f"En la semana, cumplirle los dos viajes al Edwin Tráiler Azul cuesta **{money(diff)} más** que la optimización normal.")
+            elif diff < 0:
+                st.success(f"En la semana, con los dos viajes del Edwin Tráiler Azul sale **{money(-diff)} más barato** que la optimización normal.")
 
         resumen_rows = []
         for dia in dias_ordenados:
             if dia in resultados:
-                resumen_rows.append({
+                row = {
                     "Día":     dia,
                     "Pallets": sum(pallets_calc[dia].values()),
-                    "Costo":   money(resultados[dia]['total_cost']),
-                })
+                    "Costo normal": money(resultados[dia]['total_cost']),
+                }
+                if dia in resultados_e2:
+                    d2 = resultados_e2[dia]['total_cost'] - resultados[dia]['total_cost']
+                    row["Con dos viajes Edwin"] = money(resultados_e2[dia]['total_cost'])
+                    row["Diferencia"] = f"+{money(d2)}" if d2 > 0 else f"-{money(-d2)}" if d2 < 0 else "$0"
+                resumen_rows.append(row)
         st.dataframe(pd.DataFrame(resumen_rows), use_container_width=True, hide_index=True)
