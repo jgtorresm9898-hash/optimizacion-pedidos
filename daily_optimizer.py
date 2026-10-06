@@ -28,9 +28,10 @@ Logica validada con el usuario (julio-agosto 2026):
   de Chigorodo ni de Apartado. Si NO toca Chigorodo para nada ese dia
   (todos sus viajes son puro Apartado: Dona Francia, Chispero,
   Salvamento), si alcanza a hacer sus 2 viajes normales.
-- Mula nueva de Edwin (septiembre 2026): vehiculo aparte, con su propio
-  conductor, puede salir el mismo dia que el carro actual de Edwin.
-    Tope 21P, puede ir a TODAS las fincas (incluye San Bartolo y Santa
+- Edwin Trailer Azul (antes 'Mula Edwin 21P', septiembre 2026): vehiculo
+  aparte, con su propio conductor, puede salir el mismo dia que el carro
+  actual de Edwin.
+    Tope 24P (octubre 2026: aunque se compro como de 21P, carga 24P), puede ir a TODAS las fincas (incluye San Bartolo y Santa
     Maria) y cuartear cualquier combinacion.
     Tarifa PLENA por viaje, sin importar cuantos pallets lleve:
     $1.000.000 si el viaje toca Chigorodo (San Bartolo o Juana Pio),
@@ -39,7 +40,7 @@ Logica validada con el usuario (julio-agosto 2026):
     toca Chigorodo, es el UNICO del dia.
     Tiene su propio boton de disponibilidad ('MULA_EDWIN').
 - Cuarteo (tarifas de septiembre 2026):
-    Demetrio, Edwin y Mula Edwin: NUNCA cobran cuarteo.
+    Demetrio, Edwin y Edwin Trailer Azul: NUNCA cobran cuarteo.
     Yuber: cuartear fincas del MISMO municipio (solo Chigorodo o solo
     Apartado) no tiene recargo. Solo se cobra cuarteo si el viaje mezcla
     fincas de Chigorodo y de Apartado ($100.000 por parada).
@@ -70,11 +71,11 @@ ALL_FARMS = ['JUANA PIO', 'DOÑA FRANCIA', 'SANTA MARIA', 'CHISPERO', 'SALVAMENT
 CAP_YUBER, CAP_DEMETRIO, CAP_EDWIN = 26, 18, 24
 YUBER_SALVAMENTO_CAP = 24  # la mula nueva (26P) de Yuber no entra a Salvamento -- tope 24P
 
-CAP_MULA_EDWIN = 21  # mula nueva de Edwin (sept 2026)
+CAP_MULA_EDWIN = 24  # Edwin Trailer Azul (antes 'Mula Edwin 21P'): oct 2026 se confirmo que carga 24P
 
 CARRIERS = ['YUBER', 'DEMETRIO', 'EDWIN', 'MULA_EDWIN']
 CARRIER_LABELS = {'YUBER': 'Yuber', 'DEMETRIO': 'Demetrio', 'EDWIN': 'Edwin',
-                  'MULA_EDWIN': 'Mula Edwin 21P'}
+                  'MULA_EDWIN': 'Edwin Tráiler Azul'}
 
 DEMETRIO_A_COST = 850_000
 DEMETRIO_B_COST = 550_000
