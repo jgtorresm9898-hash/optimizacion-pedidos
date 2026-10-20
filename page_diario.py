@@ -51,23 +51,6 @@ def _render_cuadro(titulo, pallets, resultado):
     c2.metric("Costo total", money(resultado['total_cost']))
 
 
-def _render_comparacion(costo_normal, costo_e2):
-    st.markdown("### Comparación")
-    diff = costo_e2 - costo_normal
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Optimización normal", money(costo_normal))
-    c2.metric("Con dos viajes Edwin", money(costo_e2))
-    if diff > 0:
-        c3.metric("Diferencia", f"+{money(diff)}")
-        st.warning(f"Cumplirle los dos viajes al Edwin Tráiler Azul cuesta **{money(diff)} más** que la optimización normal.")
-    elif diff < 0:
-        c3.metric("Diferencia", f"-{money(-diff)}")
-        st.success(f"Con los dos viajes del Edwin Tráiler Azul sale **{money(-diff)} más barato** que la optimización normal.")
-    else:
-        c3.metric("Diferencia", "$0")
-        st.info("Las dos opciones cuestan lo mismo.")
-
-
 FARM_LABELS = {
     'JUANA PIO':     'Juana Pío',
     'DOÑA FRANCIA':  'Doña Francia',
@@ -135,8 +118,6 @@ def render():
         with st.spinner("Calculando la ruta más económica… con pedidos grandes puede tardar unos segundos."):
             try:
                 resultado = optimize_day(pallets, unavailable_carriers=unavailable)
-                resultado_e2 = optimize_day(pallets, unavailable_carriers=unavailable,
-                                            forzar_trailer_dos_viajes=True)
             except RuntimeError as e:
                 st.error(f"⚠️ {e}")
                 st.stop()
@@ -147,20 +128,4 @@ def render():
             aviso_no_disp = f" — **sin {nombres}**"
         st.success(f"✅ Ruta óptima calculada para **{dia}**{aviso_no_disp}")
 
-        # ── Cuadro 1: optimización normal ────────────────────────
         _render_cuadro("Ruta", pallets, resultado)
-
-        st.divider()
-
-        # ── Cuadro 2: Edwin Tráiler Azul con dos viajes sí o sí ──
-        st.markdown("### Optimización con dos viajes Edwin")
-        st.caption("El Edwin Tráiler Azul hace sí o sí un viaje lleno (24P) de Chigorodó y otro "
-                   "lleno de Apartadó. El resto se reparte de la forma más barata.")
-        for nota in resultado_e2.get('notas', []):
-            st.info(nota, icon="ℹ️")
-        _render_cuadro("Ruta", pallets, resultado_e2)
-
-        st.divider()
-
-        # ── Comparación ──────────────────────────────────────────
-        _render_comparacion(resultado['total_cost'], resultado_e2['total_cost'])
